@@ -59,6 +59,7 @@ Optional helper topics (debug only, non-blocking):
 
 - `/Local/heading`
 - `/Local/utm`
+- optional `vehicle_status` diagnostics topic when configured
 
 If optional helper topics are absent, runtime does not fail.
 
@@ -79,9 +80,10 @@ Legacy moo bridge output:
 Brake conversion rule in legacy bridge:
 
 - runtime brake is treated as normalized `[0, 1]`
-- bridge output is `clamp(brake,0,1) * legacy_serial_bridge.brake_output_max`
-- default `brake_output_max=1.0` keeps normalized output
-- set `brake_output_max=200.0` if target consumer expects ERP-style 0-200
+- `brake_mode=normalized` forces `0~1`
+- `brake_mode=erp_200` forces `0~200`
+- `brake_mode=auto` infers from `brake_output_max` for backward compatibility
+- if `brake_mode` and `brake_output_max` disagree, `brake_mode` wins and a warning is emitted
 
 ## Safety/Arming Policy
 
@@ -109,6 +111,7 @@ python -m alpamayo1_5.competition.scripts.run_competition \
 ## Verification Checklist
 
 ```bash
+rosmsg show morai_msgs/CtrlCmd
 rostopic list
 rostopic type /camera/front/image_raw
 rostopic type camera_image
@@ -117,6 +120,7 @@ rostopic type /gps
 rostopic type /imu
 rostopic type /ctrl_cmd
 rostopic type /Control/serial_data
+rostopic echo /alpamayo/debug_snapshot
 rostopic hz /camera/front/image_raw
 rostopic hz /fix
 rostopic hz /imu
@@ -127,5 +131,6 @@ rostopic hz /imu
 - Python handoff mismatch: wrapper starts under Python 3.8 but `runtime_python` is missing
 - topic mismatch: simulator publishes `camera_image` or `/gps` while config points elsewhere
 - message type mismatch: topic type differs from config `message_type`
+- `CtrlCmd` contract mismatch: direct actuation now fails fast if required fields are missing
 - stale sensor warnings: timestamp/Hz mismatch causes waiting or degraded states
 - actuation arming: publish flags set without `arm_actuation` or debug-only still enabled

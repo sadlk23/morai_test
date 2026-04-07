@@ -8,7 +8,10 @@ from time import time
 from typing import Callable
 
 from alpamayo1_5.competition.contracts import CameraFrame, ControlCommand, DebugSnapshot, SafetyDecision, SensorPacket
-from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import LegacySerialDataPublisher
+from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import (
+    LegacySerialDataPublisher,
+    legacy_serial_bridge_diagnostics,
+)
 from alpamayo1_5.competition.integrations.morai.publishers import (
     MoraiCtrlCmdPublisher,
     RosDebugSnapshotPublisher,
@@ -163,6 +166,7 @@ class LivePacketAssembler:
                 "last_errors": snapshot.diagnostics.get("last_errors", {}),
                 "last_error_timestamps_s": snapshot.diagnostics.get("last_error_timestamps_s", {}),
                 "optional_ego": snapshot.diagnostics.get("optional_ego", {}),
+                "vehicle_status": snapshot.diagnostics.get("vehicle_status", {}),
             },
         )
         self._next_frame_id += 1
@@ -256,7 +260,39 @@ class MoraiLiveRuntime:
             "last_errors": live_snapshot.diagnostics.get("last_errors", {}),
             "last_error_timestamps_s": live_snapshot.diagnostics.get("last_error_timestamps_s", {}),
             "optional_ego": live_snapshot.diagnostics.get("optional_ego", {}),
+            "vehicle_status": self._vehicle_status_summary(live_snapshot),
+            "legacy_serial_bridge": legacy_serial_bridge_diagnostics(self.config.legacy_serial_bridge),
         }
+
+    def _vehicle_status_summary(self, live_snapshot: LiveSensorSnapshot) -> dict[str, object]:
+        summary = dict(live_snapshot.diagnostics.get("vehicle_status", {}))
+        if live_snapshot.vehicle_status_timestamp_s is None:
+            summary.setdefault("age_s", None)
+            summary.setdefault("stale", False)
+            return summary
+        age_s = max(0.0, self.assembler._time_fn() - live_snapshot.vehicle_status_timestamp_s)
+        summary["age_s"] = age_s
+        summary["stale"] = age_s > self.config.vehicle_status.max_staleness_s
+        return summary
+
+    def _command_status_summary(
+        self,
+        decision: SafetyDecision,
+        live_snapshot: LiveSensorSnapshot,
+    ) -> dict[str, object]:
+        status = live_snapshot.vehicle_status
+        if status is None:
+            return {"available": False}
+        summary: dict[str, object] = {"available": True}
+        if status.get("speed_mps") is not None:
+            summary["speed_delta_mps"] = float(decision.command.target_speed_mps) - float(status["speed_mps"])
+        if status.get("steer_rad") is not None:
+            summary["steer_delta_rad"] = float(decision.command.steering) - float(status["steer_rad"])
+        if status.get("brake") is not None:
+            summary["brake_delta"] = float(decision.command.brake) - float(status["brake"])
+        if status.get("gear") is not None:
+            summary["status_gear"] = status["gear"]
+        return summary
 
     def run_cycle_once(self) -> tuple[object, object] | None:
         """Run one live cycle if at least one sensor sample has arrived."""
@@ -281,6 +317,9 @@ class MoraiLiveRuntime:
         decision.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
         decision.diagnostics["live_health"] = health_summary
         decision.diagnostics["optional_ego"] = health_summary.get("optional_ego", {})
+        decision.diagnostics["vehicle_status"] = health_summary.get("vehicle_status", {})
+        decision.diagnostics["command_status"] = self._command_status_summary(decision, live_snapshot)
+        decision.diagnostics["legacy_serial_bridge"] = health_summary.get("legacy_serial_bridge", {})
         snapshot.diagnostics["live_system_state"] = str(health_summary["system_state"])
         snapshot.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
         snapshot.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
@@ -290,6 +329,9 @@ class MoraiLiveRuntime:
         )
         snapshot.diagnostics["live_health"] = health_summary
         snapshot.diagnostics["optional_ego"] = health_summary.get("optional_ego", {})
+        snapshot.diagnostics["vehicle_status"] = health_summary.get("vehicle_status", {})
+        snapshot.diagnostics["command_status"] = self._command_status_summary(decision, live_snapshot)
+        snapshot.diagnostics["legacy_serial_bridge"] = health_summary.get("legacy_serial_bridge", {})
         return decision, snapshot
 
     def _publish_waiting_stop(
@@ -331,6 +373,8 @@ class MoraiLiveRuntime:
                 "live_system_state": str(health_summary["system_state"]),
                 "live_health": health_summary,
                 "optional_ego": health_summary.get("optional_ego", {}),
+                "vehicle_status": health_summary.get("vehicle_status", {}),
+                "legacy_serial_bridge": health_summary.get("legacy_serial_bridge", {}),
             },
         )
         snapshot = DebugSnapshot(
@@ -345,6 +389,8 @@ class MoraiLiveRuntime:
                 "live_system_state": str(health_summary["system_state"]),
                 "live_health": health_summary,
                 "optional_ego": health_summary.get("optional_ego", {}),
+                "vehicle_status": health_summary.get("vehicle_status", {}),
+                "legacy_serial_bridge": health_summary.get("legacy_serial_bridge", {}),
             },
             safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
         )

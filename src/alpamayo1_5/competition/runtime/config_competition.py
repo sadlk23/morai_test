@@ -195,6 +195,7 @@ class LegacySerialBridgeConfig:
     default_gear: int = 0
     include_alive_counter: bool = True
     e_stop_on_intervention: bool = True
+    brake_mode: str = "auto"
     brake_output_max: float = 1.0
 
 
@@ -206,6 +207,18 @@ class OptionalEgoTopicsConfig:
     heading_message_type: str = "std_msgs/Float32"
     utm_topic: str = ""
     utm_message_type: str = "std_msgs/Float32MultiArray"
+    utm_fallback_message_types: list[str] = field(default_factory=_default_list)
+
+
+@dataclass(slots=True)
+class VehicleStatusConfig:
+    """Optional vehicle-status input used for diagnostics only."""
+
+    enabled: bool = False
+    topic: str = "/ERP/serial_data"
+    message_type: str = "std_msgs/Float32MultiArray"
+    required: bool = False
+    max_staleness_s: float = 0.5
 
 
 @dataclass(slots=True)
@@ -303,6 +316,7 @@ class CompetitionConfig:
     ros_output: RosOutputConfig = field(default_factory=RosOutputConfig)
     legacy_serial_bridge: LegacySerialBridgeConfig = field(default_factory=LegacySerialBridgeConfig)
     optional_ego_topics: OptionalEgoTopicsConfig = field(default_factory=OptionalEgoTopicsConfig)
+    vehicle_status: VehicleStatusConfig = field(default_factory=VehicleStatusConfig)
     morai_udp_reference: MoraiUdpReferenceConfig = field(default_factory=MoraiUdpReferenceConfig)
     udp_output: UdpOutputConfig = field(default_factory=UdpOutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -445,6 +459,28 @@ class CompetitionConfig:
                 errors.append(
                     "optional_ego_topics.utm_message_type must use package/MessageName syntax"
                 )
+            for fallback_message_type in self.optional_ego_topics.utm_fallback_message_types:
+                if not fallback_message_type:
+                    errors.append("optional_ego_topics.utm_fallback_message_types entries must not be empty")
+                elif "/" not in fallback_message_type:
+                    errors.append(
+                        "optional_ego_topics.utm_fallback_message_types must use package/MessageName syntax"
+                    )
+        if self.vehicle_status.enabled:
+            if not self.vehicle_status.topic:
+                errors.append("vehicle_status.topic must not be empty when enabled=true")
+            elif self.vehicle_status.topic in seen_topics:
+                errors.append(
+                    "vehicle_status.topic duplicates another topic: " + self.vehicle_status.topic
+                )
+            else:
+                seen_topics.add(self.vehicle_status.topic)
+            if not self.vehicle_status.message_type:
+                errors.append("vehicle_status.message_type must not be empty when enabled=true")
+            elif "/" not in self.vehicle_status.message_type:
+                errors.append("vehicle_status.message_type must use package/MessageName syntax")
+            if self.vehicle_status.max_staleness_s <= 0:
+                errors.append("vehicle_status.max_staleness_s must be > 0 when enabled=true")
 
         if self.output_mode not in {"ros", "udp", "dual"}:
             errors.append("output_mode must be one of: ros, udp, dual")
@@ -557,6 +593,8 @@ class CompetitionConfig:
                 errors.append(
                     "legacy_serial_bridge.message_type must be std_msgs/Float32MultiArray"
                 )
+            if self.legacy_serial_bridge.brake_mode not in {"auto", "normalized", "erp_200"}:
+                errors.append("legacy_serial_bridge.brake_mode must be auto, normalized, or erp_200")
             if self.legacy_serial_bridge.default_control_mode < 0:
                 errors.append("legacy_serial_bridge.default_control_mode must be >= 0")
             if self.legacy_serial_bridge.brake_output_max <= 0:
@@ -660,6 +698,7 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
         ros_output=RosOutputConfig(**raw.get("ros_output", {})),
         legacy_serial_bridge=LegacySerialBridgeConfig(**raw.get("legacy_serial_bridge", {})),
         optional_ego_topics=OptionalEgoTopicsConfig(**raw.get("optional_ego_topics", {})),
+        vehicle_status=VehicleStatusConfig(**raw.get("vehicle_status", {})),
         morai_udp_reference=MoraiUdpReferenceConfig(**raw.get("morai_udp_reference", {})),
         udp_output=UdpOutputConfig(**raw.get("udp_output", {})),
         logging=LoggingConfig(**raw.get("logging", {})),

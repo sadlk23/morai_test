@@ -37,7 +37,17 @@
     "heading_topic": "/Local/heading",
     "heading_message_type": "std_msgs/Float32",
     "utm_topic": "/Local/utm",
-    "utm_message_type": "std_msgs/Float32MultiArray"
+    "utm_message_type": "std_msgs/Float32MultiArray",
+    "utm_fallback_message_types": [
+      "geometry_msgs/PointStamped"
+    ]
+  },
+  "vehicle_status": {
+    "enabled": false,
+    "topic": "/ERP/serial_data",
+    "message_type": "std_msgs/Float32MultiArray",
+    "required": false,
+    "max_staleness_s": 0.5
   },
   "route_command": {
     "topic": "/route_command",
@@ -125,6 +135,7 @@
     "default_gear": 0,
     "include_alive_counter": true,
     "e_stop_on_intervention": true,
+    "brake_mode": "normalized",
     "brake_output_max": 1.0
   },
   "morai_udp_reference": {

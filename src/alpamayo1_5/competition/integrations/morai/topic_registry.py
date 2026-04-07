@@ -89,14 +89,30 @@ def build_subscription_specs(config: CompetitionConfig) -> list[SubscriptionSpec
             )
         )
     if config.optional_ego_topics.utm_topic:
+        for message_type in [config.optional_ego_topics.utm_message_type] + list(
+            config.optional_ego_topics.utm_fallback_message_types
+        ):
+            if not message_type:
+                continue
+            specs.append(
+                SubscriptionSpec(
+                    name="local_utm",
+                    topic=config.optional_ego_topics.utm_topic,
+                    message_type=message_type,
+                    sensor_kind="optional_utm",
+                    required=False,
+                    max_staleness_s=1e9,
+                )
+            )
+    if config.vehicle_status.enabled and config.vehicle_status.topic:
         specs.append(
             SubscriptionSpec(
-                name="local_utm",
-                topic=config.optional_ego_topics.utm_topic,
-                message_type=config.optional_ego_topics.utm_message_type,
-                sensor_kind="optional_utm",
+                name="vehicle_status",
+                topic=config.vehicle_status.topic,
+                message_type=config.vehicle_status.message_type,
+                sensor_kind="vehicle_status",
                 required=False,
-                max_staleness_s=1e9,
+                max_staleness_s=config.vehicle_status.max_staleness_s,
             )
         )
 

@@ -71,6 +71,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("live_health", snapshot.diagnostics)
         self.assertIn("blocking_reasons", decision.diagnostics["live_health"])
         self.assertIn("optional_ego", decision.diagnostics)
+        self.assertIn("legacy_serial_bridge", snapshot.diagnostics)
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -163,6 +164,51 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("optional_ego", decision.diagnostics)
         self.assertEqual(decision.diagnostics["optional_ego"], {})
         self.assertIn("optional_ego", snapshot.diagnostics)
+
+    def test_vehicle_status_is_reflected_in_diagnostics_when_present(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.vehicle_status.enabled = True
+        pipeline = CompetitionRuntimePipeline(config, publishers=[])
+        assembler = LivePacketAssembler(config, time_fn=lambda: 7.0)
+        subscribers = _FakeSubscribers(
+            LiveSensorSnapshot(
+                camera_frames={
+                    "front": CameraFrame(
+                        camera_id="front",
+                        timestamp_s=7.0,
+                        frame_id=2,
+                        image=[[[0, 0, 0] for _ in range(4)] for _ in range(4)],
+                        shape=(4, 4, 3),
+                        encoding="rgb8",
+                    )
+                },
+                gps_fix=GpsFix(timestamp_s=7.0, latitude_deg=37.0, longitude_deg=127.0, speed_mps=2.0),
+                imu_sample=ImuSample(timestamp_s=7.0, yaw_rad=0.0, yaw_rate_rps=0.0),
+                route_command="keep lane",
+                vehicle_status={"speed_mps": 1.7, "gear": 0.0, "steer_rad": 0.02, "brake": 0.0},
+                vehicle_status_timestamp_s=6.9,
+                diagnostics={
+                    "receive_counts": {"vehicle_status": 1},
+                    "last_errors": {},
+                    "last_error_timestamps_s": {},
+                    "optional_ego": {},
+                    "vehicle_status": {"available": True, "speed_mps": 1.7, "gear": 0.0},
+                },
+            )
+        )
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        output = runtime.run_cycle_once()
+        self.assertIsNotNone(output)
+        assert output is not None
+        decision, snapshot = output
+        self.assertTrue(decision.diagnostics["vehicle_status"]["available"])
+        self.assertIn("speed_delta_mps", decision.diagnostics["command_status"])
+        self.assertIn("vehicle_status", snapshot.diagnostics)
 
 
 if __name__ == "__main__":

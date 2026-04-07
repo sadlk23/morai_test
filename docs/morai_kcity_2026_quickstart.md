@@ -23,6 +23,7 @@ Use:
 - gps fallback: `/gps`
 - imu: `/imu`
 - optional helper (debug-only): `/Local/heading`, `/Local/utm`
+- optional vehicle status (diagnostics-only when enabled): `/ERP/serial_data` by default placeholder
 
 Optional helper topics are non-blocking. Missing helper topics must not crash runtime.
 
@@ -40,9 +41,46 @@ Optional helper topics are non-blocking. Missing helper topics must not crash ru
 Brake conversion in legacy bridge:
 
 - internal runtime brake is normalized `[0,1]`
-- output brake = `clamp(brake,0,1) * legacy_serial_bridge.brake_output_max`
-- default `brake_output_max=1.0`
-- set `brake_output_max=200.0` when consumer expects `0~200`
+- explicit `brake_mode` wins over `brake_output_max`
+- `brake_mode=normalized` forces `0~1`
+- `brake_mode=erp_200` forces `0~200`
+- `brake_mode=auto` keeps backward compatibility and infers from `brake_output_max`
+
+Example when moo side expects `0~200` brake:
+
+```json
+"legacy_serial_bridge": {
+  "enabled": true,
+  "publish_enabled": true,
+  "topic": "/Control/serial_data",
+  "message_type": "std_msgs/Float32MultiArray",
+  "brake_mode": "erp_200",
+  "brake_output_max": 200.0
+}
+```
+
+## Direct Actuation Self-Check
+
+When `enable_actuation:=true`, runtime now checks `morai_msgs/CtrlCmd` at startup and fails fast if the contract does not match.
+
+Check this before driving:
+
+```bash
+rosmsg show morai_msgs/CtrlCmd
+```
+
+Expected pedal mode fields:
+
+- `longlCmdType` or `longiCmdType`
+- `steering` or `front_steer`
+- `accel`
+- `brake`
+
+Expected velocity mode fields:
+
+- `longlCmdType` or `longiCmdType`
+- `steering` or `front_steer`
+- `velocity`
 
 ## Bring-Up Order (Debug-Only First)
 
@@ -104,6 +142,7 @@ roslaunch alpamayo1_5_ros run_competition_kcity_2026.launch \
 ## ROS Validation Checklist
 
 ```bash
+rosmsg show morai_msgs/CtrlCmd
 rostopic list
 rostopic type /camera/front/image_raw
 rostopic type camera_image
@@ -114,6 +153,7 @@ rostopic type /Local/heading
 rostopic type /Local/utm
 rostopic type /ctrl_cmd
 rostopic type /Control/serial_data
+rostopic echo /alpamayo/debug_snapshot
 rostopic hz /camera/front/image_raw
 rostopic hz /fix
 rostopic hz /imu
@@ -124,5 +164,7 @@ rostopic hz /imu
 - Python 3.10 handoff missing from ROS1 launch shell
 - topic mismatch between simulator and config (camera/gps names)
 - message type mismatch (`NavSatFix`, `Imu`, `Float32MultiArray`, `CtrlCmd`)
+- `CtrlCmd` field mismatch now fails fast during direct actuation startup
+- `vehicle_status` is diagnostics-only and is not a bring-up blocker
 - stale sensor warnings due to low frequency or timestamp drift
 - actuation not armed (`enable_actuation` without `arm_actuation`)

@@ -23,6 +23,8 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertIn("camera_image", config.cameras[0].fallback_topics)
         self.assertTrue(config.legacy_serial_bridge.enabled)
         self.assertFalse(config.legacy_serial_bridge.publish_enabled)
+        self.assertEqual(config.legacy_serial_bridge.brake_mode, "normalized")
+        self.assertIn("geometry_msgs/PointStamped", config.optional_ego_topics.utm_fallback_message_types)
 
     def test_invalid_duplicate_camera_names_fail(self) -> None:
         payload = CompetitionConfig().to_dict()
@@ -94,6 +96,15 @@ class CompetitionConfigTest(unittest.TestCase):
         updated = apply_runtime_mode_overrides(config, debug_only=True)
         self.assertFalse(updated.legacy_serial_bridge.publish_enabled)
 
+    def test_debug_only_conflicts_with_legacy_serial_enable_flag(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        with self.assertRaises(ValueError):
+            apply_runtime_mode_overrides(
+                config,
+                debug_only=True,
+                enable_legacy_serial_bridge=True,
+            )
+
     def test_direct_actuation_override_still_works(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
         updated = apply_runtime_mode_overrides(
@@ -118,6 +129,19 @@ class CompetitionConfigTest(unittest.TestCase):
             {"name": "front", "topic": "/a", "message_type": "sensor_msgs/Image"},
         ]
         payload["live_input"]["safe_stop_publish_interval_s"] = 0.0
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            with self.assertRaises(ValueError):
+                load_competition_config(handle.name)
+
+    def test_invalid_legacy_brake_mode_fails(self) -> None:
+        payload = CompetitionConfig().to_dict()
+        payload["cameras"] = [
+            {"name": "front", "topic": "/a", "message_type": "sensor_msgs/Image"},
+        ]
+        payload["legacy_serial_bridge"]["enabled"] = True
+        payload["legacy_serial_bridge"]["brake_mode"] = "bad_mode"
         with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
             json.dump(payload, handle)
             handle.flush()

@@ -7,11 +7,13 @@ import unittest
 
 from alpamayo1_5.competition.contracts import ControlCommand
 from alpamayo1_5.competition.integrations.morai.message_mapping import (
+    inspect_control_message_contract,
     map_camera_message,
     map_gps_message,
     map_imu_message,
     map_route_message,
     populate_control_message,
+    validate_control_message_contract,
 )
 
 try:
@@ -116,6 +118,21 @@ class _CtrlCmd:
         self.velocity = 0.0
 
 
+class _CtrlCmdAlt:
+    def __init__(self) -> None:
+        self.longiCmdType = 0
+        self.steering = 0.0
+        self.accel = 0.0
+        self.brake = 0.0
+        self.velocity = 0.0
+
+
+class _CtrlCmdMissingPedal:
+    def __init__(self) -> None:
+        self.longlCmdType = 0
+        self.steering = 0.0
+
+
 class MoraiMappingTest(unittest.TestCase):
     def test_map_camera_message(self) -> None:
         frame = map_camera_message(_ImageMessage(), "front", frame_id=7, message_type="sensor_msgs/Image")
@@ -196,6 +213,19 @@ class MoraiMappingTest(unittest.TestCase):
         )
         self.assertEqual(message.longlCmdType, 2)
         self.assertAlmostEqual(message.velocity, 18.0)
+
+    def test_control_message_contract_accepts_alt_longitudinal_field(self) -> None:
+        contract = validate_control_message_contract(_CtrlCmdAlt(), command_mode="pedal")
+        self.assertEqual(contract["longitudinal_mode_field"], "longiCmdType")
+        self.assertEqual(contract["steering_field"], "steering")
+
+    def test_control_message_contract_reports_missing_fields(self) -> None:
+        contract = inspect_control_message_contract(_CtrlCmdMissingPedal(), command_mode="pedal")
+        self.assertFalse(contract["compatible"])
+        self.assertIn("accel", contract["missing_fields"])
+        self.assertIn("brake", contract["missing_fields"])
+        with self.assertRaises(ValueError):
+            validate_control_message_contract(_CtrlCmdMissingPedal(), command_mode="pedal")
 
 
 if __name__ == "__main__":

@@ -156,6 +156,63 @@ def map_route_message(message: Any) -> str:
     return str(message)
 
 
+def inspect_control_message_contract(message: Any, command_mode: str = "pedal") -> dict[str, Any]:
+    """Inspect a MORAI control message instance for required compatibility fields."""
+
+    long_mode_field = next(
+        (field_name for field_name in ("longlCmdType", "longiCmdType") if hasattr(message, field_name)),
+        None,
+    )
+    steering_field = next(
+        (field_name for field_name in ("steering", "front_steer") if hasattr(message, field_name)),
+        None,
+    )
+    contract = {
+        "command_mode": command_mode,
+        "message_type": infer_message_type_name(message),
+        "longitudinal_mode_field": long_mode_field,
+        "steering_field": steering_field,
+        "rear_steer_field": "rear_steer" if hasattr(message, "rear_steer") else None,
+        "accel_field": "accel" if hasattr(message, "accel") else None,
+        "brake_field": "brake" if hasattr(message, "brake") else None,
+        "velocity_field": "velocity" if hasattr(message, "velocity") else None,
+        "acceleration_field": "acceleration" if hasattr(message, "acceleration") else None,
+        "missing_fields": [],
+    }
+    if long_mode_field is None:
+        contract["missing_fields"].append("longlCmdType|longiCmdType")
+    if steering_field is None:
+        contract["missing_fields"].append("steering|front_steer")
+    if command_mode == "pedal":
+        if contract["accel_field"] is None:
+            contract["missing_fields"].append("accel")
+        if contract["brake_field"] is None:
+            contract["missing_fields"].append("brake")
+    elif command_mode == "velocity":
+        if contract["velocity_field"] is None:
+            contract["missing_fields"].append("velocity")
+    else:
+        contract["missing_fields"].append("unsupported_command_mode:%s" % command_mode)
+    contract["compatible"] = not contract["missing_fields"]
+    return contract
+
+
+def validate_control_message_contract(message: Any, command_mode: str = "pedal") -> dict[str, Any]:
+    """Validate the target MORAI message contract and raise on mismatch."""
+
+    contract = inspect_control_message_contract(message, command_mode=command_mode)
+    if contract["missing_fields"]:
+        raise ValueError(
+            "CtrlCmd contract mismatch for %s mode on %s. Missing fields: %s"
+            % (
+                command_mode,
+                contract["message_type"],
+                ", ".join(contract["missing_fields"]),
+            )
+        )
+    return contract
+
+
 def populate_control_message(
     message: Any,
     command: ControlCommand,
@@ -163,20 +220,17 @@ def populate_control_message(
 ) -> Any:
     """Populate a ROS command message from a runtime control command."""
 
-    if hasattr(message, "longlCmdType"):
-        message.longlCmdType = 1 if command_mode == "pedal" else 2
-    if hasattr(message, "steering"):
-        message.steering = float(command.steering)
-    if hasattr(message, "front_steer"):
-        message.front_steer = float(command.steering)
-    if hasattr(message, "rear_steer") and getattr(message, "rear_steer", None) is not None:
-        message.rear_steer = 0.0
-    if hasattr(message, "accel"):
-        message.accel = float(command.throttle)
-    if hasattr(message, "brake"):
-        message.brake = float(command.brake)
-    if command_mode == "velocity" and hasattr(message, "velocity"):
-        message.velocity = float(command.target_speed_mps) * 3.6
-    if hasattr(message, "acceleration"):
-        message.acceleration = float(command.throttle)
+    contract = validate_control_message_contract(message, command_mode=command_mode)
+    setattr(message, str(contract["longitudinal_mode_field"]), 1 if command_mode == "pedal" else 2)
+    setattr(message, str(contract["steering_field"]), float(command.steering))
+    if contract["rear_steer_field"] is not None and getattr(message, "rear_steer", None) is not None:
+        setattr(message, str(contract["rear_steer_field"]), 0.0)
+    if contract["accel_field"] is not None:
+        setattr(message, str(contract["accel_field"]), float(command.throttle))
+    if contract["brake_field"] is not None:
+        setattr(message, str(contract["brake_field"]), float(command.brake))
+    if command_mode == "velocity" and contract["velocity_field"] is not None:
+        setattr(message, str(contract["velocity_field"]), float(command.target_speed_mps) * 3.6)
+    if contract["acceleration_field"] is not None:
+        setattr(message, str(contract["acceleration_field"]), float(command.throttle))
     return message

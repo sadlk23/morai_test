@@ -6,6 +6,7 @@ import argparse
 import logging
 
 from alpamayo1_5.competition.integrations.morai.live_runtime import run_live_runtime
+from alpamayo1_5.competition.integrations.morai.publishers import MoraiActuationContractError
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import MoraiIntegrationUnavailable
 from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig, load_competition_config
 from alpamayo1_5.competition.runtime.mock_data import make_mock_replay
@@ -21,8 +22,11 @@ def apply_runtime_mode_overrides(
 ) -> CompetitionConfig:
     """Apply launch-time overrides and revalidate the config."""
 
-    if debug_only and (enable_actuation or arm_actuation):
-        raise ValueError("--debug-only cannot be combined with --enable-actuation or --arm-actuation")
+    if debug_only and (enable_actuation or arm_actuation or enable_legacy_serial_bridge):
+        raise ValueError(
+            "--debug-only cannot be combined with --enable-actuation, --arm-actuation, "
+            "or --enable-legacy-serial-bridge"
+        )
     if debug_only:
         config.ros_output.publish_actuation = False
         config.ros_output.actuation_armed = False
@@ -111,6 +115,8 @@ def main() -> None:
             "Live MORAI integration is environment-gated in this workspace: "
             f"{exc}"
         ) from exc
+    except MoraiActuationContractError as exc:
+        raise SystemExit(str(exc)) from exc
     print(f"live_runtime_cycles={cycles}")
 
 

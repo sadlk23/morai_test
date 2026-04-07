@@ -16,6 +16,8 @@ from alpamayo1_5.competition.integrations.morai.message_mapping import (
 )
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import (
     MoraiIntegrationUnavailable,
+    get_nested_attr,
+    infer_message_type_name,
     import_message_class,
     import_rospy,
 )
@@ -59,8 +61,10 @@ def _optional_ego_diagnostics(
     local_heading_timestamp_s: float | None,
     local_utm_xy: dict[str, float] | None,
     local_utm_timestamp_s: float | None,
+    local_utm_source_type: str | None,
+    last_utm_error: str | None,
 ) -> dict[str, Any]:
-    diagnostics: dict[str, Any] = {}
+    diagnostics: dict[str, Any] = {"utm_available": local_utm_xy is not None}
     if local_heading_rad is not None:
         diagnostics["local_heading_rad"] = local_heading_rad
     if local_heading_timestamp_s is not None:
@@ -69,6 +73,68 @@ def _optional_ego_diagnostics(
         diagnostics["local_utm_xy"] = dict(local_utm_xy)
     if local_utm_timestamp_s is not None:
         diagnostics["local_utm_timestamp_s"] = local_utm_timestamp_s
+    if local_utm_source_type is not None:
+        diagnostics["utm_source_type"] = local_utm_source_type
+    if last_utm_error is not None:
+        diagnostics["last_utm_error"] = last_utm_error
+    return diagnostics
+
+
+def _extract_vehicle_status(message: Any) -> dict[str, Any]:
+    source_type = infer_message_type_name(message)
+    status: dict[str, Any] = {"source_type": source_type}
+    data = getattr(message, "data", None)
+    if isinstance(data, (list, tuple)):
+        if len(data) >= 7:
+            status.update(
+                {
+                    "control_mode": float(data[0]),
+                    "e_stop": float(data[1]),
+                    "gear": float(data[2]),
+                    "speed_mps": float(data[3]),
+                    "steer_rad": float(data[4]),
+                    "brake": float(data[5]),
+                    "alive": float(data[6]),
+                }
+            )
+            return status
+        raise ValueError("vehicle status array must contain at least 7 entries")
+
+    speed_value = None
+    for candidate in ("speed", "velocity", "vel", "speed_mps"):
+        value = get_nested_attr(message, candidate, None)
+        if value is not None:
+            speed_value = float(value)
+            break
+    if speed_value is not None:
+        status["speed_mps"] = speed_value
+    for field_name, candidates in {
+        "gear": ("gear", "gearNo"),
+        "brake": ("brake", "brake_pct"),
+        "steer_rad": ("steer", "steering", "wheel_angle"),
+    }.items():
+        for candidate in candidates:
+            value = get_nested_attr(message, candidate, None)
+            if value is not None:
+                status[field_name] = float(value)
+                break
+    if len(status) == 1:
+        raise ValueError("could not parse vehicle status fields from message")
+    return status
+
+
+def _vehicle_status_diagnostics(
+    vehicle_status: dict[str, Any] | None,
+    vehicle_status_timestamp_s: float | None,
+    last_vehicle_status_error: str | None,
+) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {"available": vehicle_status is not None}
+    if vehicle_status is not None:
+        diagnostics.update(dict(vehicle_status))
+    if vehicle_status_timestamp_s is not None:
+        diagnostics["timestamp_s"] = vehicle_status_timestamp_s
+    if last_vehicle_status_error is not None:
+        diagnostics["last_error"] = last_vehicle_status_error
     return diagnostics
 
 
@@ -85,6 +151,8 @@ class LiveSensorSnapshot:
     local_heading_timestamp_s: float | None = None
     local_utm_xy: dict[str, float] | None = None
     local_utm_timestamp_s: float | None = None
+    vehicle_status: dict[str, Any] | None = None
+    vehicle_status_timestamp_s: float | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -102,6 +170,11 @@ class LiveSensorState:
         self._local_heading_timestamp_s: float | None = None
         self._local_utm_xy: dict[str, float] | None = None
         self._local_utm_timestamp_s: float | None = None
+        self._local_utm_source_type: str | None = None
+        self._last_utm_error: str | None = None
+        self._vehicle_status: dict[str, Any] | None = None
+        self._vehicle_status_timestamp_s: float | None = None
+        self._last_vehicle_status_error: str | None = None
         self._receive_counts: dict[str, int] = {}
         self._last_errors: dict[str, str] = {}
         self._last_error_timestamps_s: dict[str, float] = {}
@@ -147,9 +220,28 @@ class LiveSensorState:
         with self._lock:
             self._local_utm_xy = {"x_m": float(utm_xy["x_m"]), "y_m": float(utm_xy["y_m"])}
             self._local_utm_timestamp_s = timestamp_s
+            self._local_utm_source_type = str(utm_xy.get("source_type", "")) or None
+            self._last_utm_error = None
             self._receive_counts["local_utm"] = self._receive_counts.get("local_utm", 0) + 1
             self._last_errors.pop("local_utm", None)
             self._last_error_timestamps_s.pop("local_utm", None)
+
+    def update_vehicle_status(self, vehicle_status: dict[str, Any], timestamp_s: float) -> None:
+        with self._lock:
+            self._vehicle_status = dict(vehicle_status)
+            self._vehicle_status_timestamp_s = timestamp_s
+            self._last_vehicle_status_error = None
+            self._receive_counts["vehicle_status"] = self._receive_counts.get("vehicle_status", 0) + 1
+            self._last_errors.pop("vehicle_status", None)
+            self._last_error_timestamps_s.pop("vehicle_status", None)
+
+    def record_local_utm_error(self, message: str) -> None:
+        with self._lock:
+            self._last_utm_error = message
+
+    def record_vehicle_status_error(self, message: str) -> None:
+        with self._lock:
+            self._last_vehicle_status_error = message
 
     def record_error(self, source: str, message: str, timestamp_s: float) -> None:
         """Store the latest callback error for diagnostics without crashing callbacks."""
@@ -165,6 +257,13 @@ class LiveSensorState:
                 self._local_heading_timestamp_s,
                 self._local_utm_xy,
                 self._local_utm_timestamp_s,
+                self._local_utm_source_type,
+                self._last_utm_error,
+            )
+            vehicle_status = _vehicle_status_diagnostics(
+                self._vehicle_status,
+                self._vehicle_status_timestamp_s,
+                self._last_vehicle_status_error,
             )
             return LiveSensorSnapshot(
                 camera_frames=dict(self._camera_frames),
@@ -176,11 +275,14 @@ class LiveSensorState:
                 local_heading_timestamp_s=self._local_heading_timestamp_s,
                 local_utm_xy=dict(self._local_utm_xy) if self._local_utm_xy is not None else None,
                 local_utm_timestamp_s=self._local_utm_timestamp_s,
+                vehicle_status=dict(self._vehicle_status) if self._vehicle_status is not None else None,
+                vehicle_status_timestamp_s=self._vehicle_status_timestamp_s,
                 diagnostics={
                     "receive_counts": dict(self._receive_counts),
                     "last_errors": dict(self._last_errors),
                     "last_error_timestamps_s": dict(self._last_error_timestamps_s),
                     "optional_ego": optional_ego,
+                    "vehicle_status": vehicle_status,
                 },
             )
 
@@ -304,6 +406,7 @@ class MoraiRosSubscriberManager:
         def callback(message: Any) -> None:
             try:
                 utm_xy = _extract_optional_utm(message)
+                utm_xy["source_type"] = infer_message_type_name(message)
                 timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
                 self.state.update_local_utm(utm_xy, timestamp_s)
             except Exception as exc:
@@ -314,7 +417,27 @@ class MoraiRosSubscriberManager:
                     "Failed to decode optional local UTM: %s" % error,
                     timestamp_s,
                 )
+                self.state.record_local_utm_error(error)
                 self.state.record_error("local_utm", error, timestamp_s)
+
+        return callback
+
+    def _vehicle_status_callback(self) -> Callable[[Any], None]:
+        def callback(message: Any) -> None:
+            try:
+                vehicle_status = _extract_vehicle_status(message)
+                timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
+                self.state.update_vehicle_status(vehicle_status, timestamp_s)
+            except Exception as exc:
+                error = "%s: %s" % (type(exc).__name__, exc)
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error(
+                    "vehicle_status",
+                    "Failed to decode optional vehicle status: %s" % error,
+                    timestamp_s,
+                )
+                self.state.record_vehicle_status_error(error)
+                self.state.record_error("vehicle_status", error, timestamp_s)
 
         return callback
 
@@ -345,6 +468,8 @@ class MoraiRosSubscriberManager:
                 callback = self._optional_heading_callback()
             elif spec.sensor_kind == "optional_utm":
                 callback = self._optional_utm_callback()
+            elif spec.sensor_kind == "vehicle_status":
+                callback = self._vehicle_status_callback()
             else:
                 continue
 

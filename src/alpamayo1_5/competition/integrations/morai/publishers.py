@@ -7,7 +7,11 @@ import logging
 from typing import Any
 
 from alpamayo1_5.competition.contracts import DebugSnapshot, SafetyDecision
-from alpamayo1_5.competition.integrations.morai.message_mapping import populate_control_message
+from alpamayo1_5.competition.integrations.morai.message_mapping import (
+    inspect_control_message_contract,
+    populate_control_message,
+    validate_control_message_contract,
+)
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import (
     import_message_class,
     import_rospy,
@@ -15,6 +19,10 @@ from alpamayo1_5.competition.integrations.morai.ros_message_utils import (
 from alpamayo1_5.competition.runtime.config_competition import RosOutputConfig
 
 logger = logging.getLogger(__name__)
+
+
+class MoraiActuationContractError(RuntimeError):
+    """Raised when MORAI CtrlCmd fields do not match runtime expectations."""
 
 
 class RosDebugSnapshotPublisher:
@@ -78,6 +86,7 @@ class MoraiCtrlCmdPublisher:
             self._rospy.init_node(config.node_name, anonymous=True, disable_signals=True)
         self._message_cls = import_message_class(config.actuation_message_type)
         self._command_mode = config.command_mode
+        self._contract_summary = self._startup_self_check()
         self._publisher = self._rospy.Publisher(
             config.actuation_topic,
             self._message_cls,
@@ -90,28 +99,57 @@ class MoraiCtrlCmdPublisher:
             config.command_mode,
             config.actuation_armed,
         )
+        logger.info("MORAI actuation contract=%s", self._contract_summary)
+
+    def _startup_self_check(self) -> dict[str, Any]:
+        """Fail fast when the target CtrlCmd contract is incompatible."""
+
+        message = self._message_cls()
+        contract = inspect_control_message_contract(message, command_mode=self._command_mode)
+        try:
+            validate_control_message_contract(message, command_mode=self._command_mode)
+        except ValueError as exc:
+            raise MoraiActuationContractError(
+                "Direct actuation self-check failed for %s on topic %s: %s. "
+                "Run `rosmsg show %s` and confirm pedal mode needs %s or velocity mode needs %s."
+                % (
+                    self.config.actuation_message_type,
+                    self.config.actuation_topic,
+                    exc,
+                    self.config.actuation_message_type,
+                    "longlCmdType|longiCmdType + steering|front_steer + accel + brake",
+                    "longlCmdType|longiCmdType + steering|front_steer + velocity",
+                )
+            ) from exc
+        return contract
 
     def _validate_message_shape(self, message: Any) -> None:
         """Fail early if the configured actuation message lacks expected fields."""
 
-        steer_ok = hasattr(message, "front_steer") or hasattr(message, "steering")
-        if not steer_ok:
-            raise ValueError("actuation message must expose front_steer or steering")
-        if self._command_mode == "pedal":
-            if not hasattr(message, "accel") or not hasattr(message, "brake"):
-                raise ValueError("pedal command mode requires accel and brake fields")
-        if self._command_mode == "velocity" and not hasattr(message, "velocity"):
-            raise ValueError("velocity command mode requires a velocity field")
+        validate_control_message_contract(message, command_mode=self._command_mode)
 
     def build_message(self, decision: SafetyDecision) -> Any:
         """Build the ROS actuation message without publishing it."""
 
-        message = populate_control_message(
-            self._message_cls(),
-            decision.command,
-            command_mode=self._command_mode,
-        )
-        self._validate_message_shape(message)
+        message = self._message_cls()
+        try:
+            self._validate_message_shape(message)
+            message = populate_control_message(
+                message,
+                decision.command,
+                command_mode=self._command_mode,
+            )
+        except ValueError as exc:
+            raise MoraiActuationContractError(
+                "Failed to build direct actuation message frame=%s topic=%s type=%s mode=%s: %s"
+                % (
+                    decision.frame_id,
+                    self.config.actuation_topic,
+                    self.config.actuation_message_type,
+                    self._command_mode,
+                    exc,
+                )
+            ) from exc
         return message
 
     def publish(self, decision: SafetyDecision) -> None:

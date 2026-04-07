@@ -11,6 +11,7 @@ from alpamayo1_5.competition.runtime.config_competition import load_competition_
 class TopicRegistryTest(unittest.TestCase):
     def test_kcity_2026_builds_primary_and_fallback_specs(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.vehicle_status.enabled = True
         specs = build_subscription_specs(config)
         topics = {spec.topic for spec in specs}
         sensor_kinds = {spec.sensor_kind for spec in specs}
@@ -21,11 +22,13 @@ class TopicRegistryTest(unittest.TestCase):
         self.assertIn("/gps", topics)
         self.assertIn("/Local/heading", topics)
         self.assertIn("/Local/utm", topics)
+        self.assertIn("/ERP/serial_data", topics)
         self.assertIn("camera", sensor_kinds)
         self.assertIn("gps", sensor_kinds)
         self.assertIn("imu", sensor_kinds)
         self.assertIn("optional_heading", sensor_kinds)
         self.assertIn("optional_utm", sensor_kinds)
+        self.assertIn("vehicle_status", sensor_kinds)
 
 
 if __name__ == "__main__":

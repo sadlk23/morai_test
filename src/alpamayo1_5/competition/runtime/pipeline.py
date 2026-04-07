@@ -17,6 +17,7 @@ from alpamayo1_5.competition.preprocess.image_preprocess import ImagePreprocesso
 from alpamayo1_5.competition.preprocess.model_input import ModelInputPackager
 from alpamayo1_5.competition.preprocess.sensor_fusion import SensorFusion
 from alpamayo1_5.competition.preprocess.state_preprocess import StatePreprocessor
+from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import legacy_serial_bridge_diagnostics
 from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig
 from alpamayo1_5.competition.runtime.debug_dump import DebugDumper
 from alpamayo1_5.competition.runtime.latency_monitor import LatencyMonitor
@@ -144,6 +145,13 @@ class CompetitionRuntimePipeline:
                     "decision_intervention": decision.intervention,
                 },
             )
+            if self.config.legacy_serial_bridge.enabled:
+                snapshot.diagnostics["legacy_serial_bridge"] = legacy_serial_bridge_diagnostics(
+                    self.config.legacy_serial_bridge
+                )
+                decision.diagnostics["legacy_serial_bridge"] = legacy_serial_bridge_diagnostics(
+                    self.config.legacy_serial_bridge
+                )
 
             publish_errors: list[str] = []
             with self._measure(monitor, "publish"):

@@ -35,6 +35,53 @@ def _should_e_stop(decision: SafetyDecision, config: LegacySerialBridgeConfig) -
     return 0.0
 
 
+def resolve_legacy_brake_scaling(config: LegacySerialBridgeConfig) -> tuple[str, float, list[str]]:
+    """Resolve brake scaling deterministically from mode and output max.
+
+    Precedence:
+    - explicit ``brake_mode`` wins
+    - ``auto`` infers from ``brake_output_max`` for backward compatibility
+    """
+
+    warnings: list[str] = []
+    brake_mode = config.brake_mode
+    if brake_mode == "auto":
+        if float(config.brake_output_max) > 1.0:
+            return "erp_200", 200.0, warnings
+        return "normalized", 1.0, warnings
+    if brake_mode == "normalized":
+        if abs(float(config.brake_output_max) - 1.0) > 1e-6:
+            warnings.append(
+                "legacy_serial_bridge.brake_mode=normalized overrides brake_output_max=%s to 1.0"
+                % config.brake_output_max
+            )
+        return "normalized", 1.0, warnings
+    if brake_mode == "erp_200":
+        if abs(float(config.brake_output_max) - 200.0) > 1e-6:
+            warnings.append(
+                "legacy_serial_bridge.brake_mode=erp_200 overrides brake_output_max=%s to 200.0"
+                % config.brake_output_max
+            )
+        return "erp_200", 200.0, warnings
+    warnings.append("unknown brake_mode=%s, falling back to normalized" % brake_mode)
+    return "normalized", 1.0, warnings
+
+
+def legacy_serial_bridge_diagnostics(config: LegacySerialBridgeConfig) -> dict[str, object]:
+    mode, brake_output_max, warnings = resolve_legacy_brake_scaling(config)
+    return {
+        "enabled": config.enabled,
+        "publish_enabled": config.publish_enabled,
+        "topic": config.topic,
+        "message_type": config.message_type,
+        "brake_mode": mode,
+        "brake_output_max": brake_output_max,
+        "config_brake_mode": config.brake_mode,
+        "config_brake_output_max": float(config.brake_output_max),
+        "warnings": warnings,
+    }
+
+
 def build_legacy_serial_payload(
     decision: SafetyDecision,
     config: LegacySerialBridgeConfig,
@@ -47,10 +94,11 @@ def build_legacy_serial_payload(
     into [0, 200] when configured for ERP-style consumers.
     """
 
+    _mode, brake_output_max, _warnings = resolve_legacy_brake_scaling(config)
     speed_mps = max(0.0, float(decision.command.target_speed_mps))
     steer_rad = float(decision.command.steering)
     brake_normalized = _clamp(float(decision.command.brake), 0.0, 1.0)
-    brake_out = brake_normalized * float(config.brake_output_max)
+    brake_out = brake_normalized * brake_output_max
     alive_value = float(alive_counter if config.include_alive_counter else 0)
     return [
         float(config.default_control_mode),
@@ -80,13 +128,18 @@ class LegacySerialDataPublisher:
             queue_size=ros_output_config.queue_size,
         )
         self._alive_counter = 0
+        self._resolved_brake_mode, self._resolved_brake_output_max, warnings = resolve_legacy_brake_scaling(
+            bridge_config
+        )
         logger.info(
             "Initialized legacy serial bridge topic=%s type=%s include_alive=%s brake_output_max=%.1f",
             bridge_config.topic,
             bridge_config.message_type,
             bridge_config.include_alive_counter,
-            bridge_config.brake_output_max,
+            self._resolved_brake_output_max,
         )
+        for warning in warnings:
+            logger.warning("%s", warning)
 
     def build_message(self, decision: SafetyDecision):
         message = self._message_cls()
