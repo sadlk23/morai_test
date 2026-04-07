@@ -1,0 +1,125 @@
+{
+  "planner_hz": 10.0,
+  "control_hz": 20.0,
+  "use_lidar": false,
+  "output_mode": "ros",
+  "cameras": [
+    {
+      "name": "front_left",
+      "topic": "/alpamayo/camera/front_left/image_raw",
+      "camera_index": 0,
+      "required": true,
+      "width": 1280,
+      "height": 720,
+      "max_staleness_s": 0.2
+    },
+    {
+      "name": "front",
+      "topic": "/alpamayo/camera/front/image_raw",
+      "camera_index": 1,
+      "required": true,
+      "width": 1280,
+      "height": 720,
+      "max_staleness_s": 0.2
+    },
+    {
+      "name": "front_right",
+      "topic": "/alpamayo/camera/front_right/image_raw",
+      "camera_index": 2,
+      "required": true,
+      "width": 1280,
+      "height": 720,
+      "max_staleness_s": 0.2
+    },
+    {
+      "name": "front_tele",
+      "topic": "/alpamayo/camera/front_tele/image_raw",
+      "camera_index": 6,
+      "required": false,
+      "width": 1280,
+      "height": 720,
+      "max_staleness_s": 0.2
+    }
+  ],
+  "planner": {
+    "backend": "lightweight",
+    "legacy_model_id": "nvidia/Alpamayo-1.5-10B",
+    "device": "cuda",
+    "use_diffusion": false,
+    "use_nav": true,
+    "precision": "bf16",
+    "input_image_width": 1280,
+    "input_image_height": 720,
+    "history_steps": 16,
+    "history_dt_s": 0.1,
+    "num_waypoints": 20,
+    "waypoint_dt_s": 0.2,
+    "min_target_speed_mps": 0.0,
+    "max_target_speed_mps": 8.0,
+    "low_confidence_threshold": 0.35,
+    "allow_backend_fallback": true
+  },
+  "controller": {
+    "lateral_controller": "pure_pursuit",
+    "pure_pursuit": {
+      "wheelbase_m": 2.7,
+      "min_lookahead_m": 2.0,
+      "max_lookahead_m": 8.0,
+      "speed_to_lookahead_gain": 0.8
+    },
+    "stanley": {
+      "wheelbase_m": 2.7,
+      "gain": 1.2,
+      "softening_speed_mps": 0.5
+    },
+    "longitudinal_pid": {
+      "kp": 0.5,
+      "ki": 0.05,
+      "kd": 0.1,
+      "integral_limit": 5.0,
+      "output_limit": 1.0
+    },
+    "max_steering": 1.0,
+    "max_throttle": 1.0,
+    "max_brake": 1.0
+  },
+  "safety": {
+    "max_plan_age_s": 0.3,
+    "max_sensor_age_s": 0.25,
+    "max_abs_steering": 1.0,
+    "max_target_speed_mps": 10.0,
+    "max_curvature_for_full_speed": 0.08,
+    "min_confidence": 0.3,
+    "max_stop_probability_without_brake": 0.5,
+    "reuse_last_command_horizon_s": 0.3,
+    "emergency_brake_value": 1.0,
+    "conservative_speed_mps": 1.0,
+    "min_fresh_cameras": 1,
+    "invalidate_on_stale_ego_sensors": true
+  },
+  "ros_output": {
+    "enabled": true,
+    "command_topic": "/alpamayo/control_cmd",
+    "debug_topic": "/alpamayo/debug_snapshot",
+    "node_name": "alpamayo_competition_runtime"
+  },
+  "udp_output": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 5005
+  },
+  "logging": {
+    "log_dir": "artifacts/competition_logs",
+    "write_metrics_jsonl": true,
+    "write_debug_jsonl": true,
+    "write_command_history_jsonl": true,
+    "verbose_debug": false,
+    "save_last_valid_plan": true,
+    "enable_latency_profiling": true
+  },
+  "replay": {
+    "enabled": true,
+    "default_route_command": "keep lane",
+    "default_frame_interval_s": 0.1
+  }
+}

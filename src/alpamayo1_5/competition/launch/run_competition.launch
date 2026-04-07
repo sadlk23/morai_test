@@ -1,0 +1,8 @@
+<launch>
+  <node
+    pkg="alpamayo1_5"
+    type="run_competition.py"
+    name="alpamayo_competition_runtime"
+    output="screen"
+    args="--config configs/competition_camera_gps_imu.json --dry-run --frames 10" />
+</launch>
