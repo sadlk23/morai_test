@@ -1,6 +1,6 @@
 <launch>
-  <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT $(find alpamayo1_5_ros)/../../..)" />
-  <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH $(arg repo_root)/configs/competition_morai_live.json)" />
+  <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT)" />
+  <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH)" />
   <arg name="runtime_python" default="$(optenv ALPAMAYO_RUNTIME_PYTHON)" />
   <arg name="debug_only" default="true" />
   <arg name="enable_actuation" default="false" />

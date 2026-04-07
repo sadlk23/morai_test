@@ -160,6 +160,7 @@ class LivePacketAssembler:
                 "live_blocking_reasons": diagnostics.blocking_reasons,
                 "receive_counts": snapshot.diagnostics.get("receive_counts", {}),
                 "last_errors": snapshot.diagnostics.get("last_errors", {}),
+                "last_error_timestamps_s": snapshot.diagnostics.get("last_error_timestamps_s", {}),
             },
         )
         self._next_frame_id += 1
@@ -224,6 +225,26 @@ class MoraiLiveRuntime:
                 return "debug_only"
         return "ready"
 
+    def _health_summary(
+        self,
+        health: LivePacketDiagnostics,
+        live_snapshot: LiveSensorSnapshot,
+        publishing_decision: bool,
+    ) -> dict[str, object]:
+        """Build a structured live-health summary for debug snapshots and logs."""
+
+        return {
+            "system_state": self._system_state(health, live_snapshot, publishing_decision=publishing_decision),
+            "missing_required": list(health.missing_required),
+            "stale_sensors": list(health.stale_sensors),
+            "route_command_stale": health.route_command_stale,
+            "timed_out": health.timed_out,
+            "blocking_reasons": list(health.blocking_reasons),
+            "receive_counts": live_snapshot.diagnostics.get("receive_counts", {}),
+            "last_errors": live_snapshot.diagnostics.get("last_errors", {}),
+            "last_error_timestamps_s": live_snapshot.diagnostics.get("last_error_timestamps_s", {}),
+        }
+
     def run_cycle_once(self) -> tuple[object, object] | None:
         """Run one live cycle if at least one sensor sample has arrived."""
 
@@ -241,14 +262,19 @@ class MoraiLiveRuntime:
                 self._publish_waiting_stop(live_snapshot, health)
             return None
         decision, snapshot = self.pipeline.run_cycle(packet)
-        state_name = self._system_state(health, live_snapshot, publishing_decision=True)
-        decision.diagnostics["live_system_state"] = state_name
+        health_summary = self._health_summary(health, live_snapshot, publishing_decision=True)
+        decision.diagnostics["live_system_state"] = str(health_summary["system_state"])
         decision.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
         decision.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
-        snapshot.diagnostics["live_system_state"] = state_name
+        decision.diagnostics["live_health"] = health_summary
+        snapshot.diagnostics["live_system_state"] = str(health_summary["system_state"])
         snapshot.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
         snapshot.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
         snapshot.diagnostics["last_errors"] = live_snapshot.diagnostics.get("last_errors", {})
+        snapshot.diagnostics["last_error_timestamps_s"] = live_snapshot.diagnostics.get(
+            "last_error_timestamps_s", {}
+        )
+        snapshot.diagnostics["live_health"] = health_summary
         return decision, snapshot
 
     def _publish_waiting_stop(
@@ -262,8 +288,9 @@ class MoraiLiveRuntime:
         if now_s - self._last_wait_publish_s < self.config.live_input.safe_stop_publish_interval_s:
             return
         self._last_wait_publish_s = now_s
-        receive_counts = live_snapshot.diagnostics.get("receive_counts", {})
-        last_errors = live_snapshot.diagnostics.get("last_errors", {})
+        health_summary = self._health_summary(health, live_snapshot, publishing_decision=False)
+        receive_counts = health_summary["receive_counts"]
+        last_errors = health_summary["last_errors"]
         decision = SafetyDecision(
             frame_id=-1,
             timestamp_s=now_s,
@@ -285,7 +312,9 @@ class MoraiLiveRuntime:
                 "blocking_reasons": list(health.blocking_reasons),
                 "receive_counts": receive_counts,
                 "last_errors": last_errors,
-                "live_system_state": self._system_state(health, live_snapshot, publishing_decision=False),
+                "last_error_timestamps_s": health_summary["last_error_timestamps_s"],
+                "live_system_state": str(health_summary["system_state"]),
+                "live_health": health_summary,
             },
         )
         snapshot = DebugSnapshot(
@@ -296,7 +325,9 @@ class MoraiLiveRuntime:
                 "blocking_reasons": list(health.blocking_reasons),
                 "receive_counts": receive_counts,
                 "last_errors": last_errors,
-                "live_system_state": self._system_state(health, live_snapshot, publishing_decision=False),
+                "last_error_timestamps_s": health_summary["last_error_timestamps_s"],
+                "live_system_state": str(health_summary["system_state"]),
+                "live_health": health_summary,
             },
             safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
         )

@@ -110,6 +110,7 @@ class MoraiRosSubscriberManager:
         self.config = config
         self.state = state or LiveSensorState()
         self._rospy = import_rospy()
+        self._last_warning_s: dict[str, float] = {}
         if not self._rospy.core.is_initialized():
             self._rospy.init_node(
                 config.live_input.node_name,
@@ -118,6 +119,15 @@ class MoraiRosSubscriberManager:
             )
         self._subscribers: list[Any] = []
         self._register_subscribers()
+
+    def _warn_callback_error(self, source: str, message: str, timestamp_s: float) -> None:
+        """Throttle repeated callback warnings for the same source."""
+
+        last_warning_s = self._last_warning_s.get(source, -1e9)
+        if timestamp_s - last_warning_s < self.config.live_input.warn_throttle_s:
+            return
+        self._last_warning_s[source] = timestamp_s
+        logger.warning("%s", message)
 
     def _camera_callback(
         self,
@@ -139,7 +149,11 @@ class MoraiRosSubscriberManager:
                 stamp_s = getattr(getattr(message, "header", None), "stamp", None)
                 timestamp_s = float(stamp_s.to_sec()) if hasattr(stamp_s, "to_sec") else self._rospy.get_time()
                 error = "%s: %s" % (type(exc).__name__, exc)
-                logger.warning("Failed to decode camera %s on %s: %s", camera_name, message_type, error)
+                self._warn_callback_error(
+                    camera_name,
+                    "Failed to decode camera %s on %s: %s" % (camera_name, message_type, error),
+                    timestamp_s,
+                )
                 self.state.record_error(camera_name, error, timestamp_s)
 
         return callback
@@ -150,8 +164,9 @@ class MoraiRosSubscriberManager:
                 self.state.update_gps(map_gps_message(message))
             except Exception as exc:
                 error = "%s: %s" % (type(exc).__name__, exc)
-                logger.warning("Failed to decode GPS message: %s", error)
-                self.state.record_error("gps", error, self._rospy.get_time())
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error("gps", "Failed to decode GPS message: %s" % error, timestamp_s)
+                self.state.record_error("gps", error, timestamp_s)
 
         return callback
 
@@ -161,8 +176,9 @@ class MoraiRosSubscriberManager:
                 self.state.update_imu(map_imu_message(message))
             except Exception as exc:
                 error = "%s: %s" % (type(exc).__name__, exc)
-                logger.warning("Failed to decode IMU message: %s", error)
-                self.state.record_error("imu", error, self._rospy.get_time())
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error("imu", "Failed to decode IMU message: %s" % error, timestamp_s)
+                self.state.record_error("imu", error, timestamp_s)
 
         return callback
 
@@ -178,8 +194,13 @@ class MoraiRosSubscriberManager:
                 self.state.update_route_command(route_command, stamp_s)
             except Exception as exc:
                 error = "%s: %s" % (type(exc).__name__, exc)
-                logger.warning("Failed to decode route command: %s", error)
-                self.state.record_error("route_command", error, self._rospy.get_time())
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error(
+                    "route_command",
+                    "Failed to decode route command: %s" % error,
+                    timestamp_s,
+                )
+                self.state.record_error("route_command", error, timestamp_s)
 
         return callback
 

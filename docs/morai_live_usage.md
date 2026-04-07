@@ -188,6 +188,14 @@ roslaunch alpamayo1_5_ros run_competition_live.launch \
   debug_only:=true
 ```
 
+If `repo_root` and `config` are omitted, the wrapper now tries:
+
+1. explicit env vars
+2. current working directory discovery
+3. script-relative fallback
+
+For actual MORAI bring-up, passing `repo_root` and `config` explicitly is still recommended.
+
 ## Exact First Steps On Ubuntu 20.04 + ROS1 Noetic + MORAI
 
 1. Install or activate a Python 3.10+ environment for the competition runtime.

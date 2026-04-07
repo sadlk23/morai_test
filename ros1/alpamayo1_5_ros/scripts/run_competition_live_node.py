@@ -27,6 +27,23 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def _is_repo_root(path: Path) -> bool:
+    return (path / "src" / "alpamayo1_5").exists()
+
+
+def _discover_repo_root() -> Path | None:
+    candidates: list[Path] = []
+    cwd = Path.cwd().resolve()
+    candidates.append(cwd)
+    candidates.extend(cwd.parents)
+    script_path = Path(__file__).resolve()
+    candidates.extend(script_path.parents)
+    for candidate in candidates:
+        if _is_repo_root(candidate):
+            return candidate
+    return None
+
+
 def _truthy_env(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -35,8 +52,11 @@ def resolve_repo_root(cli_value: str | None = None) -> Path:
     """Resolve the repository root using CLI, env, or relative path."""
 
     candidate = cli_value or os.environ.get(ENV_REPO_ROOT)
-    repo_root = Path(candidate).expanduser().resolve() if candidate else _repo_root()
-    if not (repo_root / "src" / "alpamayo1_5").exists():
+    if candidate:
+        repo_root = Path(candidate).expanduser().resolve()
+    else:
+        repo_root = _discover_repo_root() or _repo_root()
+    if not _is_repo_root(repo_root):
         raise SystemExit(
             "Could not resolve Alpamayo repo root. Set --repo-root or %s to a checkout that contains src/alpamayo1_5."
             % ENV_REPO_ROOT
@@ -131,6 +151,10 @@ def main() -> None:
                 "Set --runtime-python or %s to a Python 3.10+ interpreter."
                 % (sys.version_info.major, sys.version_info.minor, ENV_RUNTIME_PYTHON)
             )
+        sys.stderr.write(
+            "alpamayo1_5_ros: handing off from Python %d.%d to runtime interpreter %s\n"
+            % (sys.version_info.major, sys.version_info.minor, runtime_python)
+        )
         raise SystemExit(subprocess.call(runtime_argv, env=runtime_env))
 
     sys.path.insert(0, str(repo_root / "src"))

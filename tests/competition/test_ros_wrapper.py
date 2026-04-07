@@ -32,6 +32,18 @@ class RosWrapperTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             self.module.resolve_runtime_python("definitely-not-a-real-python-binary")
 
+    def test_resolve_repo_root_can_discover_from_current_working_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            (repo_root / "src" / "alpamayo1_5").mkdir(parents=True)
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(str(repo_root))
+                resolved = self.module.resolve_repo_root(None)
+            finally:
+                os.chdir(old_cwd)
+            self.assertEqual(resolved, repo_root.resolve())
+
     def test_build_runtime_argv_includes_debug_and_arming_flags(self) -> None:
         argv = self.module.build_runtime_argv(
             runtime_python="python3.11",

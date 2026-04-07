@@ -67,6 +67,9 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("planner", snapshot.stage_latency_ms)
         self.assertIn("live_system_state", decision.diagnostics)
         self.assertIn(decision.diagnostics["live_system_state"], {"debug_only", "publishing_actuation", "ready", "degraded"})
+        self.assertIn("live_health", decision.diagnostics)
+        self.assertIn("live_health", snapshot.diagnostics)
+        self.assertIn("blocking_reasons", decision.diagnostics["live_health"])
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -99,6 +102,8 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertEqual(capture.decisions[0].intervention, "live_input_wait_stop")
         self.assertIn("live_waiting_for_required_inputs", capture.decisions[0].safety_flags)
         self.assertEqual(capture.decisions[0].diagnostics["live_system_state"], "waiting")
+        self.assertIn("live_health", capture.decisions[0].diagnostics)
+        self.assertTrue(capture.decisions[0].diagnostics["live_health"]["timed_out"])
 
     def test_wait_stop_publish_interval_is_independent_from_warning_throttle(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
