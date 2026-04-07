@@ -162,7 +162,8 @@ class LiveRuntimeTest(unittest.TestCase):
         assert output is not None
         decision, snapshot = output
         self.assertIn("optional_ego", decision.diagnostics)
-        self.assertEqual(decision.diagnostics["optional_ego"], {})
+        self.assertFalse(decision.diagnostics["optional_ego"]["heading_available"])
+        self.assertFalse(decision.diagnostics["optional_ego"]["utm_available"])
         self.assertIn("optional_ego", snapshot.diagnostics)
 
     def test_vehicle_status_is_reflected_in_diagnostics_when_present(self) -> None:

@@ -259,10 +259,20 @@ class MoraiLiveRuntime:
             "receive_counts": live_snapshot.diagnostics.get("receive_counts", {}),
             "last_errors": live_snapshot.diagnostics.get("last_errors", {}),
             "last_error_timestamps_s": live_snapshot.diagnostics.get("last_error_timestamps_s", {}),
-            "optional_ego": live_snapshot.diagnostics.get("optional_ego", {}),
+            "optional_ego": self._optional_ego_summary(live_snapshot),
             "vehicle_status": self._vehicle_status_summary(live_snapshot),
             "legacy_serial_bridge": legacy_serial_bridge_diagnostics(self.config.legacy_serial_bridge),
         }
+
+    def _optional_ego_summary(self, live_snapshot: LiveSensorSnapshot) -> dict[str, object]:
+        summary = dict(live_snapshot.diagnostics.get("optional_ego", {}))
+        summary.setdefault("heading_available", live_snapshot.local_heading_rad is not None)
+        summary.setdefault("utm_available", live_snapshot.local_utm_xy is not None)
+        if live_snapshot.local_heading_timestamp_s is not None:
+            summary.setdefault("local_heading_timestamp_s", live_snapshot.local_heading_timestamp_s)
+        if live_snapshot.local_utm_timestamp_s is not None:
+            summary.setdefault("local_utm_timestamp_s", live_snapshot.local_utm_timestamp_s)
+        return summary
 
     def _vehicle_status_summary(self, live_snapshot: LiveSensorSnapshot) -> dict[str, object]:
         summary = dict(live_snapshot.diagnostics.get("vehicle_status", {}))

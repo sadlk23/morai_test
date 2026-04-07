@@ -59,16 +59,25 @@ def _extract_optional_utm(message: Any) -> dict[str, float]:
 def _optional_ego_diagnostics(
     local_heading_rad: float | None,
     local_heading_timestamp_s: float | None,
+    local_heading_source_type: str | None,
+    last_heading_error: str | None,
     local_utm_xy: dict[str, float] | None,
     local_utm_timestamp_s: float | None,
     local_utm_source_type: str | None,
     last_utm_error: str | None,
 ) -> dict[str, Any]:
-    diagnostics: dict[str, Any] = {"utm_available": local_utm_xy is not None}
+    diagnostics: dict[str, Any] = {
+        "heading_available": local_heading_rad is not None,
+        "utm_available": local_utm_xy is not None,
+    }
     if local_heading_rad is not None:
         diagnostics["local_heading_rad"] = local_heading_rad
     if local_heading_timestamp_s is not None:
         diagnostics["local_heading_timestamp_s"] = local_heading_timestamp_s
+    if local_heading_source_type is not None:
+        diagnostics["heading_source_type"] = local_heading_source_type
+    if last_heading_error is not None:
+        diagnostics["last_heading_error"] = last_heading_error
     if local_utm_xy is not None:
         diagnostics["local_utm_xy"] = dict(local_utm_xy)
     if local_utm_timestamp_s is not None:
@@ -168,6 +177,8 @@ class LiveSensorState:
         self._route_timestamp_s: float | None = None
         self._local_heading_rad: float | None = None
         self._local_heading_timestamp_s: float | None = None
+        self._local_heading_source_type: str | None = None
+        self._last_heading_error: str | None = None
         self._local_utm_xy: dict[str, float] | None = None
         self._local_utm_timestamp_s: float | None = None
         self._local_utm_source_type: str | None = None
@@ -212,9 +223,14 @@ class LiveSensorState:
         with self._lock:
             self._local_heading_rad = heading_rad
             self._local_heading_timestamp_s = timestamp_s
+            self._last_heading_error = None
             self._receive_counts["local_heading"] = self._receive_counts.get("local_heading", 0) + 1
             self._last_errors.pop("local_heading", None)
             self._last_error_timestamps_s.pop("local_heading", None)
+
+    def set_local_heading_source_type(self, source_type: str) -> None:
+        with self._lock:
+            self._local_heading_source_type = source_type or None
 
     def update_local_utm(self, utm_xy: dict[str, float], timestamp_s: float) -> None:
         with self._lock:
@@ -239,6 +255,10 @@ class LiveSensorState:
         with self._lock:
             self._last_utm_error = message
 
+    def record_local_heading_error(self, message: str) -> None:
+        with self._lock:
+            self._last_heading_error = message
+
     def record_vehicle_status_error(self, message: str) -> None:
         with self._lock:
             self._last_vehicle_status_error = message
@@ -255,6 +275,8 @@ class LiveSensorState:
             optional_ego = _optional_ego_diagnostics(
                 self._local_heading_rad,
                 self._local_heading_timestamp_s,
+                self._local_heading_source_type,
+                self._last_heading_error,
                 self._local_utm_xy,
                 self._local_utm_timestamp_s,
                 self._local_utm_source_type,
@@ -389,6 +411,7 @@ class MoraiRosSubscriberManager:
             try:
                 heading_rad = _extract_optional_heading_rad(message)
                 timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
+                self.state.set_local_heading_source_type(infer_message_type_name(message))
                 self.state.update_local_heading(heading_rad, timestamp_s)
             except Exception as exc:
                 error = "%s: %s" % (type(exc).__name__, exc)
@@ -398,6 +421,7 @@ class MoraiRosSubscriberManager:
                     "Failed to decode optional local heading: %s" % error,
                     timestamp_s,
                 )
+                self.state.record_local_heading_error(error)
                 self.state.record_error("local_heading", error, timestamp_s)
 
         return callback

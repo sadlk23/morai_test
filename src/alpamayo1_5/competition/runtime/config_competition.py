@@ -204,7 +204,8 @@ class OptionalEgoTopicsConfig:
     """Optional helper ego topics used for diagnostics only."""
 
     heading_topic: str = ""
-    heading_message_type: str = "std_msgs/Float32"
+    heading_message_type: str = "std_msgs/Float64"
+    heading_fallback_message_types: list[str] = field(default_factory=_default_list)
     utm_topic: str = ""
     utm_message_type: str = "std_msgs/Float32MultiArray"
     utm_fallback_message_types: list[str] = field(default_factory=_default_list)
@@ -443,6 +444,15 @@ class CompetitionConfig:
                 errors.append(
                     "optional_ego_topics.heading_message_type must use package/MessageName syntax"
                 )
+            for fallback_message_type in self.optional_ego_topics.heading_fallback_message_types:
+                if not fallback_message_type:
+                    errors.append(
+                        "optional_ego_topics.heading_fallback_message_types entries must not be empty"
+                    )
+                elif "/" not in fallback_message_type:
+                    errors.append(
+                        "optional_ego_topics.heading_fallback_message_types must use package/MessageName syntax"
+                    )
         if self.optional_ego_topics.utm_topic:
             if self.optional_ego_topics.utm_topic in seen_topics:
                 errors.append(

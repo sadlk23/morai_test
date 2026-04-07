@@ -24,6 +24,8 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertTrue(config.legacy_serial_bridge.enabled)
         self.assertFalse(config.legacy_serial_bridge.publish_enabled)
         self.assertEqual(config.legacy_serial_bridge.brake_mode, "normalized")
+        self.assertEqual(config.optional_ego_topics.heading_message_type, "std_msgs/Float64")
+        self.assertIn("std_msgs/Float32", config.optional_ego_topics.heading_fallback_message_types)
         self.assertIn("geometry_msgs/PointStamped", config.optional_ego_topics.utm_fallback_message_types)
 
     def test_invalid_duplicate_camera_names_fail(self) -> None:

@@ -57,7 +57,7 @@ Primary live inputs:
 
 Optional helper topics (debug only, non-blocking):
 
-- `/Local/heading`
+- `/Local/heading` with `std_msgs/Float64` primary and `std_msgs/Float32` fallback
 - `/Local/utm`
 - optional `vehicle_status` diagnostics topic when configured
 

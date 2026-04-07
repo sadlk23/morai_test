@@ -35,7 +35,10 @@
   },
   "optional_ego_topics": {
     "heading_topic": "/Local/heading",
-    "heading_message_type": "std_msgs/Float32",
+    "heading_message_type": "std_msgs/Float64",
+    "heading_fallback_message_types": [
+      "std_msgs/Float32"
+    ],
     "utm_topic": "/Local/utm",
     "utm_message_type": "std_msgs/Float32MultiArray",
     "utm_fallback_message_types": [

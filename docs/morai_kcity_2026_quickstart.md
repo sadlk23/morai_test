@@ -22,7 +22,7 @@ Use:
 - gps primary: `/fix`
 - gps fallback: `/gps`
 - imu: `/imu`
-- optional helper (debug-only): `/Local/heading`, `/Local/utm`
+- optional helper (debug-only): `/Local/heading` (`std_msgs/Float64` primary, `std_msgs/Float32` fallback), `/Local/utm`
 - optional vehicle status (diagnostics-only when enabled): `/ERP/serial_data` by default placeholder
 
 Optional helper topics are non-blocking. Missing helper topics must not crash runtime.

@@ -29,6 +29,12 @@ class TopicRegistryTest(unittest.TestCase):
         self.assertIn("optional_heading", sensor_kinds)
         self.assertIn("optional_utm", sensor_kinds)
         self.assertIn("vehicle_status", sensor_kinds)
+        heading_specs = [
+            spec for spec in specs if spec.sensor_kind == "optional_heading" and spec.topic == "/Local/heading"
+        ]
+        heading_types = {spec.message_type for spec in heading_specs}
+        self.assertIn("std_msgs/Float64", heading_types)
+        self.assertIn("std_msgs/Float32", heading_types)
 
 
 if __name__ == "__main__":

@@ -78,16 +78,21 @@ def build_subscription_specs(config: CompetitionConfig) -> list[SubscriptionSpec
             )
         )
     if config.optional_ego_topics.heading_topic:
-        specs.append(
-            SubscriptionSpec(
-                name="local_heading",
-                topic=config.optional_ego_topics.heading_topic,
-                message_type=config.optional_ego_topics.heading_message_type,
-                sensor_kind="optional_heading",
-                required=False,
-                max_staleness_s=1e9,
+        for message_type in [config.optional_ego_topics.heading_message_type] + list(
+            config.optional_ego_topics.heading_fallback_message_types
+        ):
+            if not message_type:
+                continue
+            specs.append(
+                SubscriptionSpec(
+                    name="local_heading",
+                    topic=config.optional_ego_topics.heading_topic,
+                    message_type=message_type,
+                    sensor_kind="optional_heading",
+                    required=False,
+                    max_staleness_s=1e9,
+                )
             )
-        )
     if config.optional_ego_topics.utm_topic:
         for message_type in [config.optional_ego_topics.utm_message_type] + list(
             config.optional_ego_topics.utm_fallback_message_types

@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 
 from alpamayo1_5.competition.integrations.morai.subscribers import (
+    _extract_optional_heading_rad,
+    _optional_ego_diagnostics,
     _extract_optional_utm,
     _extract_vehicle_status,
 )
@@ -26,6 +28,20 @@ class _FloatArray:
         self.data = [56.0, 78.0]
 
 
+class _Float32Heading:
+    def __init__(self) -> None:
+        self.data = 1.25
+
+
+class _Float64Heading:
+    def __init__(self) -> None:
+        self.data = 2.5
+
+
+class _UnsupportedHeading:
+    pass
+
+
 class _UnsupportedUtm:
     pass
 
@@ -44,6 +60,30 @@ class _VehicleStatusMsg:
 
 
 class MoraiSubscribersTest(unittest.TestCase):
+    def test_extract_optional_heading_supports_float32(self) -> None:
+        heading = _extract_optional_heading_rad(_Float32Heading())
+        self.assertEqual(heading, 1.25)
+
+    def test_extract_optional_heading_supports_float64(self) -> None:
+        heading = _extract_optional_heading_rad(_Float64Heading())
+        self.assertEqual(heading, 2.5)
+
+    def test_extract_optional_heading_gracefully_rejects_unsupported_message(self) -> None:
+        with self.assertRaises(ValueError):
+            _extract_optional_heading_rad(_UnsupportedHeading())
+        diagnostics = _optional_ego_diagnostics(
+            local_heading_rad=None,
+            local_heading_timestamp_s=None,
+            local_heading_source_type=None,
+            last_heading_error="ValueError: could not parse heading from message",
+            local_utm_xy=None,
+            local_utm_timestamp_s=None,
+            local_utm_source_type=None,
+            last_utm_error=None,
+        )
+        self.assertFalse(diagnostics["heading_available"])
+        self.assertEqual(diagnostics["last_heading_error"], "ValueError: could not parse heading from message")
+
     def test_extract_optional_utm_supports_point_stamped(self) -> None:
         utm = _extract_optional_utm(_PointStamped())
         self.assertEqual(utm["x_m"], 12.0)
