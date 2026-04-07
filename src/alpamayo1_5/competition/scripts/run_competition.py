@@ -17,6 +17,7 @@ def apply_runtime_mode_overrides(
     debug_only: bool = False,
     enable_actuation: bool = False,
     arm_actuation: bool = False,
+    enable_legacy_serial_bridge: bool = False,
 ) -> CompetitionConfig:
     """Apply launch-time overrides and revalidate the config."""
 
@@ -25,10 +26,14 @@ def apply_runtime_mode_overrides(
     if debug_only:
         config.ros_output.publish_actuation = False
         config.ros_output.actuation_armed = False
+        config.legacy_serial_bridge.publish_enabled = False
     if enable_actuation:
         config.ros_output.publish_actuation = True
     if arm_actuation:
         config.ros_output.actuation_armed = True
+    if enable_legacy_serial_bridge:
+        config.legacy_serial_bridge.enabled = True
+        config.legacy_serial_bridge.publish_enabled = True
     config.validate()
     return config
 
@@ -64,6 +69,11 @@ def main() -> None:
         action="store_true",
         help="Explicitly arm actuation publishing for this run",
     )
+    parser.add_argument(
+        "--enable-legacy-serial-bridge",
+        action="store_true",
+        help="Enable legacy /Control/serial_data Float32MultiArray publishing",
+    )
     args = parser.parse_args()
 
     try:
@@ -73,6 +83,7 @@ def main() -> None:
             debug_only=args.debug_only,
             enable_actuation=args.enable_actuation,
             arm_actuation=args.arm_actuation,
+            enable_legacy_serial_bridge=args.enable_legacy_serial_bridge,
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc

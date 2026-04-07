@@ -1,67 +1,41 @@
 # MORAI Live Usage
 
-## Entry Point
+## Scope
+
+This repository keeps the existing MORAI competition runtime skeleton and now supports two control outputs:
+
+1. Direct MORAI actuation (`/ctrl_cmd`, `morai_msgs/CtrlCmd`)
+2. Legacy moo-compatible serial bridge (`/Control/serial_data`, `std_msgs/Float32MultiArray`)
+
+Both can be enabled together, and debug-first behavior is preserved.
+
+## Runtime And ROS Wrapper
+
+Runtime entrypoint:
 
 ```bash
 python -m alpamayo1_5.competition.scripts.run_competition --config configs/competition_morai_live.json
 ```
 
-Dedicated wrapper:
-
-```bash
-python -m alpamayo1_5.competition.scripts.run_competition_live --config configs/competition_morai_live.json
-```
-
-ROS1 catkin wrapper:
+ROS1 wrapper node:
 
 ```bash
 roslaunch alpamayo1_5_ros run_competition_live.launch
 ```
 
-Debug-first ROS1 wrapper with an explicit Python 3.10+ runtime interpreter:
+K-City 2026 wrapper:
 
 ```bash
-roslaunch alpamayo1_5_ros run_competition_live.launch \
-  runtime_python:=/usr/bin/python3.10 \
-  debug_only:=true
+roslaunch alpamayo1_5_ros run_competition_kcity_2026.launch
 ```
 
-## What The Live Adapter Owns
+## Python/ROS1 Constraint
 
-The MORAI adapter layer:
+Target field environment is Ubuntu 20.04 + ROS1 Noetic, but the runtime requires Python 3.10+.
+Use wrapper handoff:
 
-- subscribes to live ROS topics
-- converts ROS messages into `CameraFrame`, `GpsFix`, `ImuSample`, and route text
-- assembles a `SensorPacket`
-- feeds the existing `CompetitionRuntimePipeline`
-- publishes debug JSON and actuation commands separately
-
-## Expected ROS Packages
-
-The target ROS workspace should provide the packages referenced by config:
-
-- `rospy`
-- `std_msgs`
-- image/GPS/IMU message packages that match `message_type`
-
-For direct MORAI actuation publishing:
-
-- `morai_msgs/CtrlCmd`
-
-## Important Ubuntu 20.04 + ROS1 Noetic Reality Check
-
-Stock ROS1 Noetic commonly runs on Python 3.8, but the current competition runtime now targets:
-
-- `Python >=3.10,<3.13` in `pyproject.toml`
-- a ROS1 wrapper package under `ros1/alpamayo1_5_ros/`
-
-This means the repository is still **not** a drop-in stock-Noetic Python 3.8
-node. The implemented deployment choice is:
-
-1. keep the competition runtime on Python 3.10+
-2. provide a ROS1 wrapper package for catkin integration
-3. let the ROS1 wrapper hand off to a configured Python 3.10+ interpreter
-4. fail early with a clear message when the wrapper is started under Python 3.8 without that interpreter handoff
+- wrapper under ROS1 launches
+- runtime executes with `runtime_python:=/usr/bin/python3.10` (or another Python 3.10+ path)
 
 Supported wrapper env vars:
 
@@ -71,81 +45,51 @@ Supported wrapper env vars:
 - `ALPAMAYO_DEBUG_ONLY`
 - `ALPAMAYO_ENABLE_ACTUATION`
 - `ALPAMAYO_ARM_ACTUATION`
+- `ALPAMAYO_ENABLE_LEGACY_SERIAL_BRIDGE`
 
-Default MORAI mapping in this repository:
+## Topic Compatibility
 
-- `front_steer <- steering`
-- `accel <- throttle`
-- `brake <- brake`
-- `longlCmdType <- 1` in pedal mode
-- `velocity <- target_speed_mps * 3.6` only when `command_mode=velocity`
+Primary live inputs:
 
-## Supported Live Image Inputs
+- camera: `/camera/front/image_raw` (supports fallback subscription to `camera_image`)
+- gps: `/fix` (K-City 2026 config) with fallback `/gps`
+- imu: `/imu`
 
-Supported camera ROS message types:
+Optional helper topics (debug only, non-blocking):
 
-- `sensor_msgs/Image`
-- `sensor_msgs/CompressedImage`
+- `/Local/heading`
+- `/Local/utm`
 
-Supported raw image encodings:
+If optional helper topics are absent, runtime does not fail.
 
-- `rgb8`
-- `bgr8`
-- `rgba8`
-- `bgra8`
-- `mono8`
+## Output Paths
 
-Internal normalization:
+Direct MORAI output:
 
-- decoded to `H x W x 3` RGB `uint8`
-- stored in `CameraFrame.image`
-- `CameraFrame.metadata["decoded_rgb"] = true`
+- topic: `/ctrl_cmd`
+- type: `morai_msgs/CtrlCmd`
+- longi mode: type 1 in pedal mode
 
-Compressed image note:
+Legacy moo bridge output:
 
-- compressed image decoding requires Pillow at runtime
-- if Pillow is unavailable, compressed image topics fail clearly and raw image topics should be used instead
+- topic: `/Control/serial_data`
+- type: `std_msgs/Float32MultiArray`
+- payload: `[control_mode, e_stop, gear, speed_mps, steer_rad, brake, alive]`
 
-## Bring-Up Checklist
+Brake conversion rule in legacy bridge:
 
-1. Verify actual simulator topic names and update `configs/competition_morai_live.json`.
-2. Verify actual ROS message types and update `message_type` fields if needed.
-3. Confirm the actuation topic and message type used by the target MORAI workspace.
-4. Start with `planner.backend=lightweight`.
-5. Keep `ros_output.publish_actuation=false` or launch with `debug_only:=true`.
-6. Confirm the runtime publishes `live_input_wait_stop` while sensors are still missing.
-7. Verify `live_system_state` moves from `waiting` to `debug_only` or `ready`.
-8. Verify `CameraFrame.metadata["decoded_rgb"] = true` in debug snapshots.
-9. Enable real actuation only after JSON/debug behavior matches expectations.
-10. Monitor `artifacts/morai_live_logs/` for metrics, snapshots, and command history.
+- runtime brake is treated as normalized `[0, 1]`
+- bridge output is `clamp(brake,0,1) * legacy_serial_bridge.brake_output_max`
+- default `brake_output_max=1.0` keeps normalized output
+- set `brake_output_max=200.0` if target consumer expects ERP-style 0-200
 
-`live_input_wait_stop` note:
+## Safety/Arming Policy
 
-- waiting-stop publication is intentionally separate from warning throttling
-- `live_input.safe_stop_publish_interval_s` controls how often the safe stop command is republished
-- `live_input.warn_throttle_s` controls how often waiting warnings are logged
-- for simulator bring-up, keep `safe_stop_publish_interval_s` short enough to maintain a stable stop state
+- Default is debug-first
+- Actuation is allowed only when explicitly armed
+- `--debug-only` disables direct actuation and legacy serial bridge publishing
 
-## Debug-First Bring-Up
-
-Recommended first pass:
-
-1. `planner.backend=lightweight`
-2. `ros_output.publish_command_json=true`
-3. `ros_output.publish_debug_json=true`
-4. `ros_output.publish_actuation=false`
-5. confirm camera/GPS/IMU rates and stale warnings
-6. only then switch `publish_actuation=true`
-
-Recommended command sequence:
-
-```bash
-python -m alpamayo1_5.competition.scripts.run_competition \
-  --config configs/competition_morai_live.json \
-  --debug-only
-```
-
-Then, only after verifying debug output:
+Allowed actuation command pattern:
 
 ```bash
 python -m alpamayo1_5.competition.scripts.run_competition \
@@ -154,106 +98,34 @@ python -m alpamayo1_5.competition.scripts.run_competition \
   --arm-actuation
 ```
 
-`--enable-actuation` without `--arm-actuation` now fails early by design.
-
-`--debug-only` cannot be combined with actuation flags.
-
-## ROS1 Wrapper Package
-
-The repository now includes a minimal catkin wrapper package:
-
-- `ros1/alpamayo1_5_ros/package.xml`
-- `ros1/alpamayo1_5_ros/CMakeLists.txt`
-- `ros1/alpamayo1_5_ros/scripts/run_competition_live_node.py`
-- `ros1/alpamayo1_5_ros/launch/run_competition_live.launch`
-
-This wrapper improves ROS launch practicality, but it still depends on the
-runtime being executed with Python 3.10+.
-
-Practical catkin bring-up:
-
-1. Source your ROS workspace.
-2. Make sure `morai_msgs`, `sensor_msgs`, and `std_msgs` are installed.
-3. Use `runtime_python:=/path/to/python3.10+` when launching from a Python 3.8 Noetic shell.
-4. Start with `debug_only:=true`.
-5. Enable `enable_actuation:=true arm_actuation:=true` only after debug validation.
-
-Example:
+Legacy bridge command flag:
 
 ```bash
-roslaunch alpamayo1_5_ros run_competition_live.launch \
-  repo_root:=/path/to/alpamayo1.5-main \
-  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
-  runtime_python:=/usr/bin/python3.10 \
-  debug_only:=true
+python -m alpamayo1_5.competition.scripts.run_competition \
+  --config configs/competition_morai_kcity_2026.json \
+  --enable-legacy-serial-bridge
 ```
 
-If `repo_root` and `config` are omitted, the wrapper now tries:
-
-1. explicit env vars
-2. current working directory discovery
-3. script-relative fallback
-
-For actual MORAI bring-up, passing `repo_root` and `config` explicitly is still recommended.
-
-## Exact First Steps On Ubuntu 20.04 + ROS1 Noetic + MORAI
-
-1. Install or activate a Python 3.10+ environment for the competition runtime.
-2. Install the project dependencies into that Python 3.10+ environment.
-3. Source ROS and your catkin workspace:
-
-```bash
-source /opt/ros/noetic/setup.bash
-source ~/catkin_ws/devel/setup.bash
-```
-
-4. Confirm the simulator topics and types:
+## Verification Checklist
 
 ```bash
 rostopic list
 rostopic type /camera/front/image_raw
+rostopic type camera_image
+rostopic type /fix
 rostopic type /gps
 rostopic type /imu
 rostopic type /ctrl_cmd
+rostopic type /Control/serial_data
+rostopic hz /camera/front/image_raw
+rostopic hz /fix
+rostopic hz /imu
 ```
 
-5. Edit `configs/competition_morai_live.json` so camera, GPS, IMU, route, and command topics match your workspace.
-6. Keep the planner backend as `lightweight`.
-7. Launch debug-only first:
+## Common Trouble Points
 
-```bash
-roslaunch alpamayo1_5_ros run_competition_live.launch \
-  repo_root:=/path/to/alpamayo1.5-main \
-  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
-  runtime_python:=/usr/bin/python3.10 \
-  debug_only:=true
-```
-
-8. Check that:
-   - sensor callbacks increment receive counts
-   - `live_system_state` moves out of `waiting`
-   - decoded camera frames report `decoded_rgb=true`
-   - debug JSON topics are publishing
-9. Only after that, enable actuation explicitly:
-
-```bash
-roslaunch alpamayo1_5_ros run_competition_live.launch \
-  repo_root:=/path/to/alpamayo1.5-main \
-  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
-  runtime_python:=/usr/bin/python3.10 \
-  debug_only:=false \
-  enable_actuation:=true \
-  arm_actuation:=true
-```
-
-## Environment-Dependent Limits
-
-This repository now contains the live MORAI adapter path, but actual simulator
-validation still depends on the local ROS workspace:
-
-- the real message packages must be installed
-- the real topic graph must match config
-- final actuation semantics must be confirmed against the target MORAI setup
-- stock ROS1 Noetic Python 3.8 still cannot run the competition runtime directly without the wrapper handing off to Python 3.10+
-- `morai_msgs/CtrlCmd` must exist in the local ROS workspace before real actuation publishing can be enabled
-- `legacy_alpamayo` still needs heavy dependencies, checkpoint availability, and a GPU-capable runtime environment
+- Python handoff mismatch: wrapper starts under Python 3.8 but `runtime_python` is missing
+- topic mismatch: simulator publishes `camera_image` or `/gps` while config points elsewhere
+- message type mismatch: topic type differs from config `message_type`
+- stale sensor warnings: timestamp/Hz mismatch causes waiting or degraded states
+- actuation arming: publish flags set without `arm_actuation` or debug-only still enabled

@@ -16,6 +16,14 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertGreaterEqual(len(config.cameras), 1)
         self.assertEqual(config.controller.lateral_controller, "pure_pursuit")
 
+    def test_kcity_2026_config_loads(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        self.assertEqual(config.controller.pure_pursuit.wheelbase_m, 3.0)
+        self.assertEqual(config.gps.topic, "/fix")
+        self.assertIn("camera_image", config.cameras[0].fallback_topics)
+        self.assertTrue(config.legacy_serial_bridge.enabled)
+        self.assertFalse(config.legacy_serial_bridge.publish_enabled)
+
     def test_invalid_duplicate_camera_names_fail(self) -> None:
         payload = CompetitionConfig().to_dict()
         payload["cameras"] = [
@@ -79,6 +87,30 @@ class CompetitionConfigTest(unittest.TestCase):
                 enable_actuation=True,
                 arm_actuation=False,
             )
+
+    def test_debug_only_disables_legacy_serial_bridge_publish(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.legacy_serial_bridge.publish_enabled = True
+        updated = apply_runtime_mode_overrides(config, debug_only=True)
+        self.assertFalse(updated.legacy_serial_bridge.publish_enabled)
+
+    def test_direct_actuation_override_still_works(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        updated = apply_runtime_mode_overrides(
+            config,
+            debug_only=False,
+            enable_actuation=True,
+            arm_actuation=True,
+        )
+        self.assertTrue(updated.ros_output.publish_actuation)
+        self.assertTrue(updated.ros_output.actuation_armed)
+
+    def test_enable_legacy_serial_bridge_override(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.legacy_serial_bridge.publish_enabled = False
+        updated = apply_runtime_mode_overrides(config, enable_legacy_serial_bridge=True)
+        self.assertTrue(updated.legacy_serial_bridge.enabled)
+        self.assertTrue(updated.legacy_serial_bridge.publish_enabled)
 
     def test_live_safe_stop_publish_interval_must_be_positive(self) -> None:
         payload = CompetitionConfig().to_dict()

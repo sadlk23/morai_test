@@ -8,6 +8,7 @@ from time import time
 from typing import Callable
 
 from alpamayo1_5.competition.contracts import CameraFrame, ControlCommand, DebugSnapshot, SafetyDecision, SensorPacket
+from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import LegacySerialDataPublisher
 from alpamayo1_5.competition.integrations.morai.publishers import (
     MoraiCtrlCmdPublisher,
     RosDebugSnapshotPublisher,
@@ -161,6 +162,7 @@ class LivePacketAssembler:
                 "receive_counts": snapshot.diagnostics.get("receive_counts", {}),
                 "last_errors": snapshot.diagnostics.get("last_errors", {}),
                 "last_error_timestamps_s": snapshot.diagnostics.get("last_error_timestamps_s", {}),
+                "optional_ego": snapshot.diagnostics.get("optional_ego", {}),
             },
         )
         self._next_frame_id += 1
@@ -202,6 +204,16 @@ class MoraiLiveRuntime:
                 publishers.append(RosDebugSnapshotPublisher(self.config.ros_output))
             if self.config.ros_output.publish_actuation:
                 publishers.append(MoraiCtrlCmdPublisher(self.config.ros_output))
+            if (
+                self.config.legacy_serial_bridge.enabled
+                and self.config.legacy_serial_bridge.publish_enabled
+            ):
+                publishers.append(
+                    LegacySerialDataPublisher(
+                        self.config.legacy_serial_bridge,
+                        self.config.ros_output,
+                    )
+                )
         if self.config.output_mode in {"udp", "dual"} and self.config.udp_output.enabled:
             publishers.append(UdpCommandPublisher(self.config.udp_output))
         return publishers
@@ -243,6 +255,7 @@ class MoraiLiveRuntime:
             "receive_counts": live_snapshot.diagnostics.get("receive_counts", {}),
             "last_errors": live_snapshot.diagnostics.get("last_errors", {}),
             "last_error_timestamps_s": live_snapshot.diagnostics.get("last_error_timestamps_s", {}),
+            "optional_ego": live_snapshot.diagnostics.get("optional_ego", {}),
         }
 
     def run_cycle_once(self) -> tuple[object, object] | None:
@@ -267,6 +280,7 @@ class MoraiLiveRuntime:
         decision.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
         decision.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
         decision.diagnostics["live_health"] = health_summary
+        decision.diagnostics["optional_ego"] = health_summary.get("optional_ego", {})
         snapshot.diagnostics["live_system_state"] = str(health_summary["system_state"])
         snapshot.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
         snapshot.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
@@ -275,6 +289,7 @@ class MoraiLiveRuntime:
             "last_error_timestamps_s", {}
         )
         snapshot.diagnostics["live_health"] = health_summary
+        snapshot.diagnostics["optional_ego"] = health_summary.get("optional_ego", {})
         return decision, snapshot
 
     def _publish_waiting_stop(
@@ -315,6 +330,7 @@ class MoraiLiveRuntime:
                 "last_error_timestamps_s": health_summary["last_error_timestamps_s"],
                 "live_system_state": str(health_summary["system_state"]),
                 "live_health": health_summary,
+                "optional_ego": health_summary.get("optional_ego", {}),
             },
         )
         snapshot = DebugSnapshot(
@@ -328,6 +344,7 @@ class MoraiLiveRuntime:
                 "last_error_timestamps_s": health_summary["last_error_timestamps_s"],
                 "live_system_state": str(health_summary["system_state"]),
                 "live_health": health_summary,
+                "optional_ego": health_summary.get("optional_ego", {}),
             },
             safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
         )

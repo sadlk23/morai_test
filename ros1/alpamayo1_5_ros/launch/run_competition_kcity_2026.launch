@@ -1,0 +1,21 @@
+<launch>
+  <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT)" />
+  <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH configs/competition_morai_kcity_2026.json)" />
+  <arg name="runtime_python" default="$(optenv ALPAMAYO_RUNTIME_PYTHON)" />
+  <arg name="debug_only" default="true" />
+  <arg name="enable_actuation" default="false" />
+  <arg name="arm_actuation" default="false" />
+  <arg name="enable_legacy_serial_bridge" default="false" />
+  <node
+    pkg="alpamayo1_5_ros"
+    type="run_competition_live_node.py"
+    name="alpamayo_morai_kcity_2026_runtime"
+    output="screen"
+    args="--repo-root $(arg repo_root) --config $(arg config)">
+    <env name="ALPAMAYO_RUNTIME_PYTHON" value="$(arg runtime_python)" />
+    <env name="ALPAMAYO_DEBUG_ONLY" value="$(arg debug_only)" />
+    <env name="ALPAMAYO_ENABLE_ACTUATION" value="$(arg enable_actuation)" />
+    <env name="ALPAMAYO_ARM_ACTUATION" value="$(arg arm_actuation)" />
+    <env name="ALPAMAYO_ENABLE_LEGACY_SERIAL_BRIDGE" value="$(arg enable_legacy_serial_bridge)" />
+  </node>
+</launch>

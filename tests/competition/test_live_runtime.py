@@ -70,6 +70,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("live_health", decision.diagnostics)
         self.assertIn("live_health", snapshot.diagnostics)
         self.assertIn("blocking_reasons", decision.diagnostics["live_health"])
+        self.assertIn("optional_ego", decision.diagnostics)
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -127,6 +128,41 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIsNone(runtime.run_cycle_once())
         self.assertEqual(len(capture.decisions), 2)
         self.assertTrue(all(item.intervention == "live_input_wait_stop" for item in capture.decisions))
+
+    def test_optional_ego_topics_missing_does_not_block_runtime(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        pipeline = CompetitionRuntimePipeline(config, publishers=[])
+        assembler = LivePacketAssembler(config, time_fn=lambda: 5.0)
+        subscribers = _FakeSubscribers(
+            LiveSensorSnapshot(
+                camera_frames={
+                    "front": CameraFrame(
+                        camera_id="front",
+                        timestamp_s=5.0,
+                        frame_id=1,
+                        image=[[[0, 0, 0] for _ in range(4)] for _ in range(4)],
+                        shape=(4, 4, 3),
+                        encoding="rgb8",
+                    )
+                },
+                gps_fix=GpsFix(timestamp_s=5.0, latitude_deg=37.0, longitude_deg=127.0, speed_mps=1.5),
+                imu_sample=ImuSample(timestamp_s=5.0, yaw_rad=0.0, yaw_rate_rps=0.0),
+                route_command="keep lane",
+            )
+        )
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        output = runtime.run_cycle_once()
+        self.assertIsNotNone(output)
+        assert output is not None
+        decision, snapshot = output
+        self.assertIn("optional_ego", decision.diagnostics)
+        self.assertEqual(decision.diagnostics["optional_ego"], {})
+        self.assertIn("optional_ego", snapshot.diagnostics)
 
 
 if __name__ == "__main__":

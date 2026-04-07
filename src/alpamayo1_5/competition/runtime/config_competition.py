@@ -31,6 +31,7 @@ class CameraConfig:
     width: int = 1280
     height: int = 720
     max_staleness_s: float = 0.2
+    fallback_topics: list[str] = field(default_factory=_default_list)
 
 
 @dataclass(slots=True)
@@ -41,6 +42,7 @@ class GpsConfig:
     message_type: str = "sensor_msgs/NavSatFix"
     required: bool = True
     max_staleness_s: float = 0.2
+    fallback_topics: list[str] = field(default_factory=_default_list)
 
 
 @dataclass(slots=True)
@@ -182,6 +184,59 @@ class RosOutputConfig:
 
 
 @dataclass(slots=True)
+class LegacySerialBridgeConfig:
+    """Legacy moo-compatible serial-data bridge output."""
+
+    enabled: bool = False
+    topic: str = "/Control/serial_data"
+    message_type: str = "std_msgs/Float32MultiArray"
+    publish_enabled: bool = False
+    default_control_mode: int = 1
+    default_gear: int = 0
+    include_alive_counter: bool = True
+    e_stop_on_intervention: bool = True
+    brake_output_max: float = 1.0
+
+
+@dataclass(slots=True)
+class OptionalEgoTopicsConfig:
+    """Optional helper ego topics used for diagnostics only."""
+
+    heading_topic: str = ""
+    heading_message_type: str = "std_msgs/Float32"
+    utm_topic: str = ""
+    utm_message_type: str = "std_msgs/Float32MultiArray"
+
+
+@dataclass(slots=True)
+class MoraiUdpReferenceConfig:
+    """MORAI UDP reference ports from moo for documentation/future bridge wiring."""
+
+    user_ip: str = "127.0.0.1"
+    host_ip: str = "127.0.0.1"
+    camera_host_port: int = 1231
+    camera_user_port: int = 1232
+    lidar_host_port: int = 2369
+    lidar_user_port: int = 2368
+    gps_host_port: int = 1233
+    gps_user_port: int = 1234
+    imu_host_port: int = 1235
+    imu_user_port: int = 1236
+    ctrl_cmd_host_port: int = 9091
+    ctrl_cmd_user_port: int = 9092
+    vehicle_status_host_port: int = 7701
+    vehicle_status_user_port: int = 7702
+    get_traffic_host_port: int = 7602
+    get_traffic_user_port: int = 7502
+    set_traffic_host_port: int = 7801
+    set_traffic_user_port: int = 7800
+    object_info_host_port: int = 7605
+    object_info_user_port: int = 7505
+    planner_path_file_name: str = "kcity.txt"
+    user_serial_port: str = "/dev/ttyUSB0"
+
+
+@dataclass(slots=True)
 class LiveInputConfig:
     """Live ROS ingestion configuration."""
 
@@ -246,6 +301,9 @@ class CompetitionConfig:
     safety: SafetyConfig = field(default_factory=SafetyConfig)
     live_input: LiveInputConfig = field(default_factory=LiveInputConfig)
     ros_output: RosOutputConfig = field(default_factory=RosOutputConfig)
+    legacy_serial_bridge: LegacySerialBridgeConfig = field(default_factory=LegacySerialBridgeConfig)
+    optional_ego_topics: OptionalEgoTopicsConfig = field(default_factory=OptionalEgoTopicsConfig)
+    morai_udp_reference: MoraiUdpReferenceConfig = field(default_factory=MoraiUdpReferenceConfig)
     udp_output: UdpOutputConfig = field(default_factory=UdpOutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     replay: ReplayConfig = field(default_factory=ReplayConfig)
@@ -286,6 +344,17 @@ class CompetitionConfig:
                 errors.append(f"camera {camera.name} must have positive resolution")
             if camera.max_staleness_s <= 0:
                 errors.append(f"camera {camera.name} max_staleness_s must be > 0")
+            for fallback_topic in camera.fallback_topics:
+                if not fallback_topic:
+                    errors.append(f"camera {camera.name} fallback topic must not be empty")
+                elif fallback_topic == camera.topic:
+                    errors.append(
+                        f"camera {camera.name} fallback topic duplicates primary topic: {fallback_topic}"
+                    )
+                elif fallback_topic in seen_topics:
+                    errors.append(f"duplicate camera fallback topic: {fallback_topic}")
+                else:
+                    seen_topics.add(fallback_topic)
 
         if not self.gps.topic:
             errors.append("gps.topic must not be empty")
@@ -301,6 +370,15 @@ class CompetitionConfig:
             seen_topics.add(self.gps.topic)
         if self.gps.max_staleness_s <= 0:
             errors.append("gps.max_staleness_s must be > 0")
+        for fallback_topic in self.gps.fallback_topics:
+            if not fallback_topic:
+                errors.append("gps.fallback_topics entries must not be empty")
+            elif fallback_topic == self.gps.topic:
+                errors.append(f"gps fallback topic duplicates primary topic: {fallback_topic}")
+            elif fallback_topic in seen_topics:
+                errors.append(f"gps fallback topic duplicates another topic: {fallback_topic}")
+            else:
+                seen_topics.add(fallback_topic)
 
         if not self.imu.topic:
             errors.append("imu.topic must not be empty")
@@ -335,6 +413,38 @@ class CompetitionConfig:
             )
         if self.route_command.max_staleness_s <= 0:
             errors.append("route_command.max_staleness_s must be > 0")
+        if self.optional_ego_topics.heading_topic:
+            if self.optional_ego_topics.heading_topic in seen_topics:
+                errors.append(
+                    "optional_ego_topics.heading_topic duplicates another topic: "
+                    + self.optional_ego_topics.heading_topic
+                )
+            else:
+                seen_topics.add(self.optional_ego_topics.heading_topic)
+            if not self.optional_ego_topics.heading_message_type:
+                errors.append(
+                    "optional_ego_topics.heading_message_type must not be empty when heading_topic is set"
+                )
+            elif "/" not in self.optional_ego_topics.heading_message_type:
+                errors.append(
+                    "optional_ego_topics.heading_message_type must use package/MessageName syntax"
+                )
+        if self.optional_ego_topics.utm_topic:
+            if self.optional_ego_topics.utm_topic in seen_topics:
+                errors.append(
+                    "optional_ego_topics.utm_topic duplicates another topic: "
+                    + self.optional_ego_topics.utm_topic
+                )
+            else:
+                seen_topics.add(self.optional_ego_topics.utm_topic)
+            if not self.optional_ego_topics.utm_message_type:
+                errors.append(
+                    "optional_ego_topics.utm_message_type must not be empty when utm_topic is set"
+                )
+            elif "/" not in self.optional_ego_topics.utm_message_type:
+                errors.append(
+                    "optional_ego_topics.utm_message_type must use package/MessageName syntax"
+                )
 
         if self.output_mode not in {"ros", "udp", "dual"}:
             errors.append("output_mode must be one of: ros, udp, dual")
@@ -384,15 +494,19 @@ class CompetitionConfig:
             errors.append("output_mode=udp requires udp_output.enabled=true")
         if self.ros_output.queue_size <= 0:
             errors.append("ros_output.queue_size must be > 0")
+        legacy_serial_active = (
+            self.legacy_serial_bridge.enabled and self.legacy_serial_bridge.publish_enabled
+        )
         if self.output_mode in {"ros", "dual"} and self.ros_output.enabled:
             if not (
                 self.ros_output.publish_command_json
                 or self.ros_output.publish_debug_json
                 or self.ros_output.publish_actuation
+                or legacy_serial_active
             ):
                 errors.append(
                     "ros_output.enabled=true requires at least one of publish_command_json, "
-                    "publish_debug_json, or publish_actuation"
+                    "publish_debug_json, publish_actuation, or legacy_serial_bridge.publish_enabled"
                 )
         if self.ros_output.publish_command_json and not self.ros_output.command_topic:
             errors.append("ros_output.command_topic must not be empty when publish_command_json=true")
@@ -434,6 +548,58 @@ class CompetitionConfig:
             errors.append("ros_output.command_mode must be pedal or velocity")
         if self.ros_output.command_mode == "velocity" and not self.ros_output.publish_actuation:
             errors.append("ros_output.command_mode=velocity requires publish_actuation=true")
+        if self.legacy_serial_bridge.publish_enabled and not self.legacy_serial_bridge.enabled:
+            errors.append("legacy_serial_bridge.publish_enabled=true requires legacy_serial_bridge.enabled=true")
+        if self.legacy_serial_bridge.enabled:
+            if not self.legacy_serial_bridge.topic:
+                errors.append("legacy_serial_bridge.topic must not be empty when enabled=true")
+            if self.legacy_serial_bridge.message_type != "std_msgs/Float32MultiArray":
+                errors.append(
+                    "legacy_serial_bridge.message_type must be std_msgs/Float32MultiArray"
+                )
+            if self.legacy_serial_bridge.default_control_mode < 0:
+                errors.append("legacy_serial_bridge.default_control_mode must be >= 0")
+            if self.legacy_serial_bridge.brake_output_max <= 0:
+                errors.append("legacy_serial_bridge.brake_output_max must be > 0")
+            if (
+                self.legacy_serial_bridge.publish_enabled
+                and self.output_mode not in {"ros", "dual"}
+            ):
+                errors.append(
+                    "legacy_serial_bridge.publish_enabled=true requires output_mode ros or dual"
+                )
+            if self.legacy_serial_bridge.publish_enabled and not self.ros_output.enabled:
+                errors.append(
+                    "legacy_serial_bridge.publish_enabled=true requires ros_output.enabled=true"
+                )
+
+        if not self.morai_udp_reference.user_ip:
+            errors.append("morai_udp_reference.user_ip must not be empty")
+        if not self.morai_udp_reference.host_ip:
+            errors.append("morai_udp_reference.host_ip must not be empty")
+        reference_ports = [
+            ("camera_host_port", self.morai_udp_reference.camera_host_port),
+            ("camera_user_port", self.morai_udp_reference.camera_user_port),
+            ("lidar_host_port", self.morai_udp_reference.lidar_host_port),
+            ("lidar_user_port", self.morai_udp_reference.lidar_user_port),
+            ("gps_host_port", self.morai_udp_reference.gps_host_port),
+            ("gps_user_port", self.morai_udp_reference.gps_user_port),
+            ("imu_host_port", self.morai_udp_reference.imu_host_port),
+            ("imu_user_port", self.morai_udp_reference.imu_user_port),
+            ("ctrl_cmd_host_port", self.morai_udp_reference.ctrl_cmd_host_port),
+            ("ctrl_cmd_user_port", self.morai_udp_reference.ctrl_cmd_user_port),
+            ("vehicle_status_host_port", self.morai_udp_reference.vehicle_status_host_port),
+            ("vehicle_status_user_port", self.morai_udp_reference.vehicle_status_user_port),
+            ("get_traffic_host_port", self.morai_udp_reference.get_traffic_host_port),
+            ("get_traffic_user_port", self.morai_udp_reference.get_traffic_user_port),
+            ("set_traffic_host_port", self.morai_udp_reference.set_traffic_host_port),
+            ("set_traffic_user_port", self.morai_udp_reference.set_traffic_user_port),
+            ("object_info_host_port", self.morai_udp_reference.object_info_host_port),
+            ("object_info_user_port", self.morai_udp_reference.object_info_user_port),
+        ]
+        for port_name, port_value in reference_ports:
+            if port_value <= 0:
+                errors.append(f"morai_udp_reference.{port_name} must be > 0")
         camera_indices = [camera.camera_index for camera in self.cameras if camera.camera_index is not None]
         if len(camera_indices) != len(set(camera_indices)):
             errors.append("camera.camera_index values must be unique when provided")
@@ -492,6 +658,9 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
         safety=SafetyConfig(**raw.get("safety", {})),
         live_input=LiveInputConfig(**raw.get("live_input", {})),
         ros_output=RosOutputConfig(**raw.get("ros_output", {})),
+        legacy_serial_bridge=LegacySerialBridgeConfig(**raw.get("legacy_serial_bridge", {})),
+        optional_ego_topics=OptionalEgoTopicsConfig(**raw.get("optional_ego_topics", {})),
+        morai_udp_reference=MoraiUdpReferenceConfig(**raw.get("morai_udp_reference", {})),
         udp_output=UdpOutputConfig(**raw.get("udp_output", {})),
         logging=LoggingConfig(**raw.get("logging", {})),
         replay=ReplayConfig(**raw.get("replay", {})),

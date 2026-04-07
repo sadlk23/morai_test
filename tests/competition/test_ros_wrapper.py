@@ -44,6 +44,16 @@ class RosWrapperTest(unittest.TestCase):
                 os.chdir(old_cwd)
             self.assertEqual(resolved, repo_root.resolve())
 
+    def test_resolve_config_path_supports_repo_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            (repo_root / "src" / "alpamayo1_5").mkdir(parents=True)
+            config_path = repo_root / "configs" / "competition_morai_kcity_2026.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text("{}", encoding="utf-8")
+            resolved = self.module.resolve_config_path(repo_root, "configs/competition_morai_kcity_2026.json")
+            self.assertEqual(resolved, config_path.resolve())
+
     def test_build_runtime_argv_includes_debug_and_arming_flags(self) -> None:
         argv = self.module.build_runtime_argv(
             runtime_python="python3.11",
@@ -52,9 +62,11 @@ class RosWrapperTest(unittest.TestCase):
             debug_only=False,
             enable_actuation=True,
             arm_actuation=True,
+            enable_legacy_serial_bridge=True,
         )
         self.assertIn("--enable-actuation", argv)
         self.assertIn("--arm-actuation", argv)
+        self.assertIn("--enable-legacy-serial-bridge", argv)
         self.assertIn("--max-cycles", argv)
 
     def test_debug_only_env_flag_is_truthy(self) -> None:

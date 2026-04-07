@@ -25,6 +25,53 @@ from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig
 logger = logging.getLogger(__name__)
 
 
+def _message_timestamp_s(message: Any, fallback_s: float) -> float:
+    stamp = getattr(getattr(message, "header", None), "stamp", None)
+    return float(stamp.to_sec()) if hasattr(stamp, "to_sec") else fallback_s
+
+
+def _extract_optional_heading_rad(message: Any) -> float:
+    for candidate in ("data", "heading", "value"):
+        value = getattr(message, candidate, None)
+        if value is not None:
+            return float(value)
+    raise ValueError("could not parse heading from message")
+
+
+def _extract_optional_utm(message: Any) -> dict[str, float]:
+    if hasattr(message, "x") and hasattr(message, "y"):
+        return {"x_m": float(message.x), "y_m": float(message.y)}
+    data = getattr(message, "data", None)
+    if isinstance(data, (list, tuple)) and len(data) >= 2:
+        return {"x_m": float(data[0]), "y_m": float(data[1])}
+    pose = getattr(message, "pose", None)
+    position = getattr(pose, "position", None) if pose is not None else None
+    if position is not None and hasattr(position, "x") and hasattr(position, "y"):
+        return {"x_m": float(position.x), "y_m": float(position.y)}
+    point = getattr(message, "point", None)
+    if point is not None and hasattr(point, "x") and hasattr(point, "y"):
+        return {"x_m": float(point.x), "y_m": float(point.y)}
+    raise ValueError("could not parse UTM x/y from message")
+
+
+def _optional_ego_diagnostics(
+    local_heading_rad: float | None,
+    local_heading_timestamp_s: float | None,
+    local_utm_xy: dict[str, float] | None,
+    local_utm_timestamp_s: float | None,
+) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {}
+    if local_heading_rad is not None:
+        diagnostics["local_heading_rad"] = local_heading_rad
+    if local_heading_timestamp_s is not None:
+        diagnostics["local_heading_timestamp_s"] = local_heading_timestamp_s
+    if local_utm_xy is not None:
+        diagnostics["local_utm_xy"] = dict(local_utm_xy)
+    if local_utm_timestamp_s is not None:
+        diagnostics["local_utm_timestamp_s"] = local_utm_timestamp_s
+    return diagnostics
+
+
 @dataclass(slots=True)
 class LiveSensorSnapshot:
     """Thread-safe snapshot of the latest converted live sensor values."""
@@ -34,6 +81,10 @@ class LiveSensorSnapshot:
     imu_sample: ImuSample | None = None
     route_command: str | None = None
     route_timestamp_s: float | None = None
+    local_heading_rad: float | None = None
+    local_heading_timestamp_s: float | None = None
+    local_utm_xy: dict[str, float] | None = None
+    local_utm_timestamp_s: float | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -47,6 +98,10 @@ class LiveSensorState:
         self._imu_sample: ImuSample | None = None
         self._route_command: str | None = None
         self._route_timestamp_s: float | None = None
+        self._local_heading_rad: float | None = None
+        self._local_heading_timestamp_s: float | None = None
+        self._local_utm_xy: dict[str, float] | None = None
+        self._local_utm_timestamp_s: float | None = None
         self._receive_counts: dict[str, int] = {}
         self._last_errors: dict[str, str] = {}
         self._last_error_timestamps_s: dict[str, float] = {}
@@ -80,6 +135,22 @@ class LiveSensorState:
             self._last_errors.pop("route_command", None)
             self._last_error_timestamps_s.pop("route_command", None)
 
+    def update_local_heading(self, heading_rad: float, timestamp_s: float) -> None:
+        with self._lock:
+            self._local_heading_rad = heading_rad
+            self._local_heading_timestamp_s = timestamp_s
+            self._receive_counts["local_heading"] = self._receive_counts.get("local_heading", 0) + 1
+            self._last_errors.pop("local_heading", None)
+            self._last_error_timestamps_s.pop("local_heading", None)
+
+    def update_local_utm(self, utm_xy: dict[str, float], timestamp_s: float) -> None:
+        with self._lock:
+            self._local_utm_xy = {"x_m": float(utm_xy["x_m"]), "y_m": float(utm_xy["y_m"])}
+            self._local_utm_timestamp_s = timestamp_s
+            self._receive_counts["local_utm"] = self._receive_counts.get("local_utm", 0) + 1
+            self._last_errors.pop("local_utm", None)
+            self._last_error_timestamps_s.pop("local_utm", None)
+
     def record_error(self, source: str, message: str, timestamp_s: float) -> None:
         """Store the latest callback error for diagnostics without crashing callbacks."""
 
@@ -89,16 +160,27 @@ class LiveSensorState:
 
     def snapshot(self) -> LiveSensorSnapshot:
         with self._lock:
+            optional_ego = _optional_ego_diagnostics(
+                self._local_heading_rad,
+                self._local_heading_timestamp_s,
+                self._local_utm_xy,
+                self._local_utm_timestamp_s,
+            )
             return LiveSensorSnapshot(
                 camera_frames=dict(self._camera_frames),
                 gps_fix=self._gps_fix,
                 imu_sample=self._imu_sample,
                 route_command=self._route_command,
                 route_timestamp_s=self._route_timestamp_s,
+                local_heading_rad=self._local_heading_rad,
+                local_heading_timestamp_s=self._local_heading_timestamp_s,
+                local_utm_xy=dict(self._local_utm_xy) if self._local_utm_xy is not None else None,
+                local_utm_timestamp_s=self._local_utm_timestamp_s,
                 diagnostics={
                     "receive_counts": dict(self._receive_counts),
                     "last_errors": dict(self._last_errors),
                     "last_error_timestamps_s": dict(self._last_error_timestamps_s),
+                    "optional_ego": optional_ego,
                 },
             )
 
@@ -186,11 +268,7 @@ class MoraiRosSubscriberManager:
         def callback(message: Any) -> None:
             try:
                 route_command = map_route_message(message)
-                timestamp_s = getattr(getattr(message, "header", None), "stamp", None)
-                if hasattr(timestamp_s, "to_sec"):
-                    stamp_s = float(timestamp_s.to_sec())
-                else:
-                    stamp_s = self._rospy.get_time()
+                stamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
                 self.state.update_route_command(route_command, stamp_s)
             except Exception as exc:
                 error = "%s: %s" % (type(exc).__name__, exc)
@@ -201,6 +279,42 @@ class MoraiRosSubscriberManager:
                     timestamp_s,
                 )
                 self.state.record_error("route_command", error, timestamp_s)
+
+        return callback
+
+    def _optional_heading_callback(self) -> Callable[[Any], None]:
+        def callback(message: Any) -> None:
+            try:
+                heading_rad = _extract_optional_heading_rad(message)
+                timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
+                self.state.update_local_heading(heading_rad, timestamp_s)
+            except Exception as exc:
+                error = "%s: %s" % (type(exc).__name__, exc)
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error(
+                    "local_heading",
+                    "Failed to decode optional local heading: %s" % error,
+                    timestamp_s,
+                )
+                self.state.record_error("local_heading", error, timestamp_s)
+
+        return callback
+
+    def _optional_utm_callback(self) -> Callable[[Any], None]:
+        def callback(message: Any) -> None:
+            try:
+                utm_xy = _extract_optional_utm(message)
+                timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
+                self.state.update_local_utm(utm_xy, timestamp_s)
+            except Exception as exc:
+                error = "%s: %s" % (type(exc).__name__, exc)
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error(
+                    "local_utm",
+                    "Failed to decode optional local UTM: %s" % error,
+                    timestamp_s,
+                )
+                self.state.record_error("local_utm", error, timestamp_s)
 
         return callback
 
@@ -227,6 +341,10 @@ class MoraiRosSubscriberManager:
                 callback = self._imu_callback()
             elif spec.sensor_kind == "route_command":
                 callback = self._route_callback()
+            elif spec.sensor_kind == "optional_heading":
+                callback = self._optional_heading_callback()
+            elif spec.sensor_kind == "optional_utm":
+                callback = self._optional_utm_callback()
             else:
                 continue
 

@@ -23,28 +23,38 @@ def build_subscription_specs(config: CompetitionConfig) -> list[SubscriptionSpec
     """Build live ROS subscriptions from the competition config."""
 
     specs: list[SubscriptionSpec] = []
+    seen_topics: set[str] = set()
     for camera in config.cameras:
+        for topic in [camera.topic] + list(camera.fallback_topics):
+            if not topic or topic in seen_topics:
+                continue
+            seen_topics.add(topic)
+            specs.append(
+                SubscriptionSpec(
+                    name=camera.name,
+                    topic=topic,
+                    message_type=camera.message_type,
+                    sensor_kind="camera",
+                    required=camera.required,
+                    max_staleness_s=camera.max_staleness_s,
+                )
+            )
+
+    for topic in [config.gps.topic] + list(config.gps.fallback_topics):
+        if not topic or topic in seen_topics:
+            continue
+        seen_topics.add(topic)
         specs.append(
             SubscriptionSpec(
-                name=camera.name,
-                topic=camera.topic,
-                message_type=camera.message_type,
-                sensor_kind="camera",
-                required=camera.required,
-                max_staleness_s=camera.max_staleness_s,
+                name="gps",
+                topic=topic,
+                message_type=config.gps.message_type,
+                sensor_kind="gps",
+                required=config.gps.required,
+                max_staleness_s=config.gps.max_staleness_s,
             )
         )
 
-    specs.append(
-        SubscriptionSpec(
-            name="gps",
-            topic=config.gps.topic,
-            message_type=config.gps.message_type,
-            sensor_kind="gps",
-            required=config.gps.required,
-            max_staleness_s=config.gps.max_staleness_s,
-        )
-    )
     specs.append(
         SubscriptionSpec(
             name="imu",
@@ -65,6 +75,28 @@ def build_subscription_specs(config: CompetitionConfig) -> list[SubscriptionSpec
                 sensor_kind="route_command",
                 required=config.route_command.required,
                 max_staleness_s=config.route_command.max_staleness_s,
+            )
+        )
+    if config.optional_ego_topics.heading_topic:
+        specs.append(
+            SubscriptionSpec(
+                name="local_heading",
+                topic=config.optional_ego_topics.heading_topic,
+                message_type=config.optional_ego_topics.heading_message_type,
+                sensor_kind="optional_heading",
+                required=False,
+                max_staleness_s=1e9,
+            )
+        )
+    if config.optional_ego_topics.utm_topic:
+        specs.append(
+            SubscriptionSpec(
+                name="local_utm",
+                topic=config.optional_ego_topics.utm_topic,
+                message_type=config.optional_ego_topics.utm_message_type,
+                sensor_kind="optional_utm",
+                required=False,
+                max_staleness_s=1e9,
             )
         )
 

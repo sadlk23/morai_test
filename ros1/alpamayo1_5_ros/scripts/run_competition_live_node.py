@@ -21,6 +21,7 @@ ENV_RUNTIME_PYTHON = "ALPAMAYO_RUNTIME_PYTHON"
 ENV_DEBUG_ONLY = "ALPAMAYO_DEBUG_ONLY"
 ENV_ENABLE_ACTUATION = "ALPAMAYO_ENABLE_ACTUATION"
 ENV_ARM_ACTUATION = "ALPAMAYO_ARM_ACTUATION"
+ENV_ENABLE_LEGACY_SERIAL_BRIDGE = "ALPAMAYO_ENABLE_LEGACY_SERIAL_BRIDGE"
 
 
 def _repo_root() -> Path:
@@ -68,7 +69,13 @@ def resolve_config_path(repo_root: Path, cli_value: str | None = None) -> Path:
     """Resolve the runtime config path using CLI, env, or repo-relative default."""
 
     candidate = cli_value or os.environ.get(ENV_CONFIG_PATH)
-    config_path = Path(candidate).expanduser().resolve() if candidate else (repo_root / DEFAULT_CONFIG_RELATIVE)
+    if candidate:
+        config_candidate = Path(candidate).expanduser()
+        if not config_candidate.is_absolute():
+            config_candidate = repo_root / config_candidate
+        config_path = config_candidate.resolve()
+    else:
+        config_path = repo_root / DEFAULT_CONFIG_RELATIVE
     if not config_path.exists():
         raise SystemExit(
             "Could not find competition config at %s. Set --config or %s explicitly."
@@ -98,6 +105,7 @@ def build_runtime_argv(
     debug_only: bool = False,
     enable_actuation: bool = False,
     arm_actuation: bool = False,
+    enable_legacy_serial_bridge: bool = False,
 ) -> list[str]:
     """Build the runtime command that launches the main competition script."""
 
@@ -114,6 +122,8 @@ def build_runtime_argv(
         argv.append("--enable-actuation")
     if arm_actuation:
         argv.append("--arm-actuation")
+    if enable_legacy_serial_bridge:
+        argv.append("--enable-legacy-serial-bridge")
     return argv + list(passthrough)
 
 
@@ -125,6 +135,7 @@ def main() -> None:
     parser.add_argument("--debug-only", action="store_true")
     parser.add_argument("--enable-actuation", action="store_true")
     parser.add_argument("--arm-actuation", action="store_true")
+    parser.add_argument("--enable-legacy-serial-bridge", action="store_true")
     args, passthrough = parser.parse_known_args()
     repo_root = resolve_repo_root(args.repo_root)
     config_path = resolve_config_path(repo_root, args.config)
@@ -132,6 +143,9 @@ def main() -> None:
     debug_only = args.debug_only or _truthy_env(ENV_DEBUG_ONLY)
     enable_actuation = args.enable_actuation or _truthy_env(ENV_ENABLE_ACTUATION)
     arm_actuation = args.arm_actuation or _truthy_env(ENV_ARM_ACTUATION)
+    enable_legacy_serial_bridge = args.enable_legacy_serial_bridge or _truthy_env(
+        ENV_ENABLE_LEGACY_SERIAL_BRIDGE
+    )
 
     runtime_argv = build_runtime_argv(
         runtime_python=runtime_python,
@@ -140,6 +154,7 @@ def main() -> None:
         debug_only=debug_only,
         enable_actuation=enable_actuation,
         arm_actuation=arm_actuation,
+        enable_legacy_serial_bridge=enable_legacy_serial_bridge,
     )
     runtime_env = os.environ.copy()
     runtime_env["PYTHONPATH"] = str(repo_root / "src") + os.pathsep + runtime_env.get("PYTHONPATH", "")
