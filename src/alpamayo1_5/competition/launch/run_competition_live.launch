@@ -1,0 +1,8 @@
+<launch>
+  <node
+    pkg="alpamayo1_5"
+    type="run_competition_live.py"
+    name="alpamayo_morai_live_runtime"
+    output="screen"
+    args="--config configs/competition_morai_live.json" />
+</launch>

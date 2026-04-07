@@ -18,6 +18,7 @@ class CameraConfig:
 
     name: str
     topic: str
+    message_type: str = "sensor_msgs/Image"
     frame_id: str = ""
     camera_index: int | None = None
     required: bool = True
@@ -31,6 +32,7 @@ class GpsConfig:
     """GPS configuration."""
 
     topic: str = "/alpamayo/gps"
+    message_type: str = "sensor_msgs/NavSatFix"
     required: bool = True
     max_staleness_s: float = 0.2
 
@@ -40,6 +42,7 @@ class ImuConfig:
     """IMU configuration."""
 
     topic: str = "/alpamayo/imu"
+    message_type: str = "sensor_msgs/Imu"
     required: bool = True
     max_staleness_s: float = 0.2
 
@@ -49,8 +52,19 @@ class LidarConfig:
     """Optional LiDAR configuration."""
 
     topic: str = "/alpamayo/lidar"
+    message_type: str = "sensor_msgs/PointCloud2"
     required: bool = False
     max_staleness_s: float = 0.25
+
+
+@dataclass(slots=True)
+class RouteCommandConfig:
+    """Optional route or navigation command topic."""
+
+    topic: str = ""
+    message_type: str = "std_msgs/String"
+    required: bool = False
+    max_staleness_s: float = 1.0
 
 
 @dataclass(slots=True)
@@ -147,9 +161,31 @@ class RosOutputConfig:
     """ROS output topics."""
 
     enabled: bool = True
-    command_topic: str = "/alpamayo/control_cmd"
+    command_topic: str = "/alpamayo/control_cmd_json"
     debug_topic: str = "/alpamayo/debug_snapshot"
     node_name: str = "alpamayo_competition_runtime"
+    queue_size: int = 1
+    publish_command_json: bool = True
+    publish_debug_json: bool = True
+    publish_actuation: bool = False
+    actuation_topic: str = "/ctrl_cmd"
+    actuation_message_type: str = "morai_msgs/CtrlCmd"
+    command_mode: str = "pedal"
+
+
+@dataclass(slots=True)
+class LiveInputConfig:
+    """Live ROS ingestion configuration."""
+
+    enabled: bool = False
+    adapter: str = "morai"
+    node_name: str = "alpamayo_morai_live_runtime"
+    loop_hz: float = 10.0
+    subscriber_queue_size: int = 1
+    packet_timeout_s: float = 0.5
+    use_ros_time: bool = True
+    fail_closed_on_missing_required: bool = True
+    warn_throttle_s: float = 2.0
 
 
 @dataclass(slots=True)
@@ -195,9 +231,11 @@ class CompetitionConfig:
     gps: GpsConfig = field(default_factory=GpsConfig)
     imu: ImuConfig = field(default_factory=ImuConfig)
     lidar: LidarConfig = field(default_factory=LidarConfig)
+    route_command: RouteCommandConfig = field(default_factory=RouteCommandConfig)
     planner: PlannerConfig = field(default_factory=PlannerConfig)
     controller: ControllerConfig = field(default_factory=ControllerConfig)
     safety: SafetyConfig = field(default_factory=SafetyConfig)
+    live_input: LiveInputConfig = field(default_factory=LiveInputConfig)
     ros_output: RosOutputConfig = field(default_factory=RosOutputConfig)
     udp_output: UdpOutputConfig = field(default_factory=UdpOutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -217,14 +255,59 @@ class CompetitionConfig:
             errors.append("at least one camera configuration is required")
 
         seen_names: set[str] = set()
+        seen_topics: set[str] = set()
         for camera in self.cameras:
             if camera.name in seen_names:
                 errors.append(f"duplicate camera name: {camera.name}")
             seen_names.add(camera.name)
+            if not camera.topic:
+                errors.append(f"camera {camera.name} topic must not be empty")
+            elif camera.topic in seen_topics:
+                errors.append(f"duplicate camera topic: {camera.topic}")
+            else:
+                seen_topics.add(camera.topic)
+            if not camera.message_type:
+                errors.append(f"camera {camera.name} message_type must not be empty")
             if camera.width <= 0 or camera.height <= 0:
                 errors.append(f"camera {camera.name} must have positive resolution")
             if camera.max_staleness_s <= 0:
                 errors.append(f"camera {camera.name} max_staleness_s must be > 0")
+
+        if not self.gps.topic:
+            errors.append("gps.topic must not be empty")
+        if not self.gps.message_type:
+            errors.append("gps.message_type must not be empty")
+        if self.gps.topic in seen_topics:
+            errors.append(f"gps.topic duplicates another topic: {self.gps.topic}")
+        else:
+            seen_topics.add(self.gps.topic)
+        if self.gps.max_staleness_s <= 0:
+            errors.append("gps.max_staleness_s must be > 0")
+
+        if not self.imu.topic:
+            errors.append("imu.topic must not be empty")
+        if not self.imu.message_type:
+            errors.append("imu.message_type must not be empty")
+        if self.imu.topic in seen_topics:
+            errors.append(f"imu.topic duplicates another topic: {self.imu.topic}")
+        else:
+            seen_topics.add(self.imu.topic)
+        if self.imu.max_staleness_s <= 0:
+            errors.append("imu.max_staleness_s must be > 0")
+
+        if self.route_command.required and not self.route_command.topic:
+            errors.append("route_command.topic must not be empty when required")
+        if self.route_command.topic:
+            if self.route_command.topic in seen_topics:
+                errors.append(
+                    f"route_command.topic duplicates another topic: {self.route_command.topic}"
+                )
+            else:
+                seen_topics.add(self.route_command.topic)
+        if self.route_command.topic and not self.route_command.message_type:
+            errors.append("route_command.message_type must not be empty when route topic is set")
+        if self.route_command.max_staleness_s <= 0:
+            errors.append("route_command.max_staleness_s must be > 0")
 
         if self.output_mode not in {"ros", "udp", "dual"}:
             errors.append("output_mode must be one of: ros, udp, dual")
@@ -254,12 +337,39 @@ class CompetitionConfig:
             errors.append("safety.min_fresh_cameras must be > 0")
         if self.safety.min_fresh_cameras > len(self.cameras):
             errors.append("safety.min_fresh_cameras cannot exceed configured camera count")
+        if self.live_input.adapter not in {"morai", "generic_ros"}:
+            errors.append("live_input.adapter must be morai or generic_ros")
+        if self.live_input.loop_hz <= 0:
+            errors.append("live_input.loop_hz must be > 0")
+        if self.live_input.subscriber_queue_size <= 0:
+            errors.append("live_input.subscriber_queue_size must be > 0")
+        if self.live_input.packet_timeout_s <= 0:
+            errors.append("live_input.packet_timeout_s must be > 0")
+        if self.live_input.warn_throttle_s <= 0:
+            errors.append("live_input.warn_throttle_s must be > 0")
         if self.udp_output.enabled and self.udp_output.port <= 0:
             errors.append("udp_output.port must be > 0 when UDP is enabled")
         if self.output_mode == "ros" and not self.ros_output.enabled:
             errors.append("output_mode=ros requires ros_output.enabled=true")
         if self.output_mode == "udp" and not self.udp_output.enabled:
             errors.append("output_mode=udp requires udp_output.enabled=true")
+        if self.ros_output.queue_size <= 0:
+            errors.append("ros_output.queue_size must be > 0")
+        if self.ros_output.publish_command_json and not self.ros_output.command_topic:
+            errors.append("ros_output.command_topic must not be empty when publish_command_json=true")
+        if self.ros_output.publish_debug_json and not self.ros_output.debug_topic:
+            errors.append("ros_output.debug_topic must not be empty when publish_debug_json=true")
+        if self.ros_output.publish_actuation:
+            if not self.ros_output.actuation_topic:
+                errors.append(
+                    "ros_output.actuation_topic must not be empty when publish_actuation=true"
+                )
+            if not self.ros_output.actuation_message_type:
+                errors.append(
+                    "ros_output.actuation_message_type must not be empty when publish_actuation=true"
+                )
+        if self.ros_output.command_mode not in {"pedal", "velocity"}:
+            errors.append("ros_output.command_mode must be pedal or velocity")
         if self.planner.checkpoint_path is not None and not Path(self.planner.checkpoint_path).exists():
             errors.append(f"planner.checkpoint_path does not exist: {self.planner.checkpoint_path}")
         if self.planner.backend == "legacy_alpamayo" and not (
@@ -293,6 +403,7 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
         gps=GpsConfig(**raw.get("gps", {})),
         imu=ImuConfig(**raw.get("imu", {})),
         lidar=LidarConfig(**raw.get("lidar", {})),
+        route_command=RouteCommandConfig(**raw.get("route_command", {})),
         planner=PlannerConfig(**raw.get("planner", {})),
         controller=ControllerConfig(
             lateral_controller=controller_raw.get("lateral_controller", "pure_pursuit"),
@@ -305,6 +416,7 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
             brake_deadband=controller_raw.get("brake_deadband", 0.05),
         ),
         safety=SafetyConfig(**raw.get("safety", {})),
+        live_input=LiveInputConfig(**raw.get("live_input", {})),
         ros_output=RosOutputConfig(**raw.get("ros_output", {})),
         udp_output=UdpOutputConfig(**raw.get("udp_output", {})),
         logging=LoggingConfig(**raw.get("logging", {})),

@@ -54,6 +54,7 @@ Checks:
 Validated by:
 
 - `tests/competition/test_pipeline.py`
+- `tests/competition/test_live_runtime.py`
 - `python -m alpamayo1_5.competition.scripts.dry_run --config configs/competition_camera_gps_imu.json --frames 2`
 
 Checks:
@@ -61,6 +62,20 @@ Checks:
 - one complete cycle executes
 - planner/controller/safety outputs are produced
 - per-stage latency is recorded
+- mocked live subscriber buffers can be assembled and executed through the same pipeline
+
+### Gate E2: Live MORAI adapter boundary
+
+Validated by:
+
+- `tests/competition/test_morai_mapping.py`
+- `tests/competition/test_live_packet_assembly.py`
+
+Checks:
+
+- ROS-like image/GPS/IMU/route messages map into runtime contracts
+- live packet assembly preserves configured camera ordering
+- stale or missing live sensors are surfaced before pipeline execution
 
 ### Gate F: Latency instrumentation
 
@@ -92,3 +107,4 @@ python -m unittest discover -s tests\competition -p "test_*.py"
 - Dependency-light tests are the default validation path in this workspace.
 - Legacy Alpamayo heavy-model validation must be run on a properly provisioned environment.
 - ROS publish behavior is validated structurally via adapters, not against a live ROS master here.
+- MORAI actuation publication still requires the target ROS workspace to provide the actual message package configured in `ros_output.actuation_message_type`.

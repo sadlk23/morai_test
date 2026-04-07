@@ -5,60 +5,30 @@
   "output_mode": "ros",
   "cameras": [
     {
-      "name": "front_left",
-      "topic": "/alpamayo/camera/front_left/image_raw",
-      "message_type": "sensor_msgs/Image",
-      "camera_index": 0,
-      "required": true,
-      "width": 1280,
-      "height": 720,
-      "max_staleness_s": 0.2
-    },
-    {
       "name": "front",
-      "topic": "/alpamayo/camera/front/image_raw",
+      "topic": "/camera/front/image_raw",
       "message_type": "sensor_msgs/Image",
       "camera_index": 1,
       "required": true,
       "width": 1280,
       "height": 720,
       "max_staleness_s": 0.2
-    },
-    {
-      "name": "front_right",
-      "topic": "/alpamayo/camera/front_right/image_raw",
-      "message_type": "sensor_msgs/Image",
-      "camera_index": 2,
-      "required": true,
-      "width": 1280,
-      "height": 720,
-      "max_staleness_s": 0.2
-    },
-    {
-      "name": "front_tele",
-      "topic": "/alpamayo/camera/front_tele/image_raw",
-      "message_type": "sensor_msgs/Image",
-      "camera_index": 6,
-      "required": false,
-      "width": 1280,
-      "height": 720,
-      "max_staleness_s": 0.2
     }
   ],
   "gps": {
-    "topic": "/alpamayo/gps",
+    "topic": "/gps",
     "message_type": "sensor_msgs/NavSatFix",
     "required": true,
     "max_staleness_s": 0.2
   },
   "imu": {
-    "topic": "/alpamayo/imu",
+    "topic": "/imu",
     "message_type": "sensor_msgs/Imu",
     "required": true,
     "max_staleness_s": 0.2
   },
   "route_command": {
-    "topic": "",
+    "topic": "/route_command",
     "message_type": "std_msgs/String",
     "required": false,
     "max_staleness_s": 1.0
@@ -123,11 +93,11 @@
     "enabled": true,
     "command_topic": "/alpamayo/control_cmd_json",
     "debug_topic": "/alpamayo/debug_snapshot",
-    "node_name": "alpamayo_competition_runtime",
+    "node_name": "alpamayo_morai_live_runtime",
     "queue_size": 1,
     "publish_command_json": true,
     "publish_debug_json": true,
-    "publish_actuation": false,
+    "publish_actuation": true,
     "actuation_topic": "/ctrl_cmd",
     "actuation_message_type": "morai_msgs/CtrlCmd",
     "command_mode": "pedal"
@@ -138,16 +108,16 @@
     "port": 5005
   },
   "logging": {
-    "log_dir": "artifacts/competition_logs",
+    "log_dir": "artifacts/morai_live_logs",
     "write_metrics_jsonl": true,
     "write_debug_jsonl": true,
     "write_command_history_jsonl": true,
-    "verbose_debug": false,
+    "verbose_debug": true,
     "save_last_valid_plan": true,
     "enable_latency_profiling": true
   },
   "live_input": {
-    "enabled": false,
+    "enabled": true,
     "adapter": "morai",
     "node_name": "alpamayo_morai_live_runtime",
     "loop_hz": 10.0,

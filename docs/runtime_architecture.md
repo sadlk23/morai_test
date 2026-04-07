@@ -119,3 +119,36 @@ Runtime instrumentation includes:
 - controller output
 - safety interventions
 - persistent JSONL metrics/debug snapshots
+
+## MORAI Integration Boundary
+
+Simulator-specific wiring is isolated under:
+
+- `src/alpamayo1_5/competition/integrations/morai/message_mapping.py`
+- `src/alpamayo1_5/competition/integrations/morai/subscribers.py`
+- `src/alpamayo1_5/competition/integrations/morai/live_runtime.py`
+- `src/alpamayo1_5/competition/integrations/morai/publishers.py`
+
+This preserves a clean split:
+
+- generic runtime logic
+  - contracts
+  - sync
+  - preprocess
+  - planner
+  - controller
+  - safety
+  - metrics/debug
+- simulator-specific logic
+  - ROS message imports
+  - live topic subscriptions
+  - packet assembly
+  - MORAI actuation publishing
+
+Live MORAI flow:
+
+1. ROS camera/GPS/IMU/route topics are subscribed
+2. messages are converted into runtime contracts
+3. `LivePacketAssembler` builds a `SensorPacket`
+4. `CompetitionRuntimePipeline` runs unchanged
+5. debug JSON and actuation outputs publish separately

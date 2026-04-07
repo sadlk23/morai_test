@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class CompetitionRuntimePipeline:
     """Single-cycle competition runtime with explicit stage boundaries."""
 
-    def __init__(self, config: CompetitionConfig):
+    def __init__(self, config: CompetitionConfig, publishers: list[object] | None = None):
         self.config = config
         self.synchronizer = SensorSynchronizer(config)
         self.image_preprocessor = ImagePreprocessor(config)
@@ -41,18 +41,19 @@ class CompetitionRuntimePipeline:
         self.safety_filter = SafetyFilter(config)
         self.debug_dumper = DebugDumper(config.logging.log_dir)
         self.metrics_writer = JsonlWriter(f"{config.logging.log_dir}/metrics.jsonl")
-        self.publishers: list[object] = []
+        self.publishers: list[object] = list(publishers or [])
         self.publisher_warnings: list[str] = []
 
-        if config.output_mode in {"ros", "dual"} and config.ros_output.enabled:
-            try:
-                self.publishers.append(RosCommandPublisher(config.ros_output))
-            except RosInterfaceUnavailable as exc:
-                warning = f"ros_publisher_unavailable: {exc}"
-                self.publisher_warnings.append(warning)
-                logger.warning(warning)
-        if config.output_mode in {"udp", "dual"} and config.udp_output.enabled:
-            self.publishers.append(UdpCommandPublisher(config.udp_output))
+        if publishers is None:
+            if config.output_mode in {"ros", "dual"} and config.ros_output.enabled:
+                try:
+                    self.publishers.append(RosCommandPublisher(config.ros_output))
+                except RosInterfaceUnavailable as exc:
+                    warning = f"ros_publisher_unavailable: {exc}"
+                    self.publisher_warnings.append(warning)
+                    logger.warning(warning)
+            if config.output_mode in {"udp", "dual"} and config.udp_output.enabled:
+                self.publishers.append(UdpCommandPublisher(config.udp_output))
         if not self.publishers:
             warning = "no_publishers_configured_or_available"
             self.publisher_warnings.append(warning)

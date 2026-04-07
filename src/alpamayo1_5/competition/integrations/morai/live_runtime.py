@@ -1,0 +1,242 @@
+"""Live MORAI runtime loop around the existing competition pipeline."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from time import sleep, time
+from typing import Callable, Iterable
+
+from alpamayo1_5.competition.contracts import CameraFrame, SensorPacket
+from alpamayo1_5.competition.integrations.morai.publishers import (
+    MoraiCtrlCmdPublisher,
+    RosDebugSnapshotPublisher,
+    RosJsonCommandPublisher,
+)
+from alpamayo1_5.competition.integrations.morai.ros_message_utils import MoraiIntegrationUnavailable, import_rospy
+from alpamayo1_5.competition.integrations.morai.subscribers import LiveSensorSnapshot, MoraiRosSubscriberManager
+from alpamayo1_5.competition.io.udp_interface import UdpCommandPublisher
+from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig
+from alpamayo1_5.competition.runtime.pipeline import CompetitionRuntimePipeline
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class LivePacketDiagnostics:
+    """Useful live-assembly diagnostics for logging and tests."""
+
+    missing_required: list[str]
+    stale_sensors: list[str]
+    route_command_stale: bool
+    timed_out: bool
+
+
+class LivePacketAssembler:
+    """Convert latest live ROS samples into the existing SensorPacket contract."""
+
+    def __init__(self, config: CompetitionConfig, time_fn: Callable[[], float] | None = None):
+        self.config = config
+        self._time_fn = time_fn or time
+        self._next_frame_id = 0
+
+    def _sensor_age(self, now_s: float, timestamp_s: float | None) -> float | None:
+        if timestamp_s is None:
+            return None
+        return max(0.0, now_s - timestamp_s)
+
+    def inspect_snapshot(self, snapshot: LiveSensorSnapshot, now_s: float | None = None) -> LivePacketDiagnostics:
+        """Summarize missing and stale live inputs before packet assembly."""
+
+        current_s = self._time_fn() if now_s is None else now_s
+        missing_required: list[str] = []
+        stale_sensors: list[str] = []
+        latest_timestamp_s: float | None = None
+
+        for camera in self.config.cameras:
+            frame = snapshot.camera_frames.get(camera.name)
+            if frame is None:
+                if camera.required:
+                    missing_required.append(camera.name)
+                continue
+            latest_timestamp_s = (
+                frame.timestamp_s
+                if latest_timestamp_s is None
+                else max(latest_timestamp_s, frame.timestamp_s)
+            )
+            frame_age = self._sensor_age(current_s, frame.timestamp_s)
+            if frame_age is not None and frame_age > camera.max_staleness_s:
+                stale_sensors.append(camera.name)
+
+        if snapshot.gps_fix is None:
+            if self.config.gps.required:
+                missing_required.append("gps")
+        else:
+            latest_timestamp_s = (
+                snapshot.gps_fix.timestamp_s
+                if latest_timestamp_s is None
+                else max(latest_timestamp_s, snapshot.gps_fix.timestamp_s)
+            )
+            gps_age = self._sensor_age(current_s, snapshot.gps_fix.timestamp_s)
+            if gps_age is not None and gps_age > self.config.gps.max_staleness_s:
+                stale_sensors.append("gps")
+
+        if snapshot.imu_sample is None:
+            if self.config.imu.required:
+                missing_required.append("imu")
+        else:
+            latest_timestamp_s = (
+                snapshot.imu_sample.timestamp_s
+                if latest_timestamp_s is None
+                else max(latest_timestamp_s, snapshot.imu_sample.timestamp_s)
+            )
+            imu_age = self._sensor_age(current_s, snapshot.imu_sample.timestamp_s)
+            if imu_age is not None and imu_age > self.config.imu.max_staleness_s:
+                stale_sensors.append("imu")
+
+        route_command_stale = False
+        if snapshot.route_timestamp_s is not None:
+            route_command_stale = (
+                self._sensor_age(current_s, snapshot.route_timestamp_s) or 0.0
+            ) > self.config.route_command.max_staleness_s
+            latest_timestamp_s = (
+                snapshot.route_timestamp_s
+                if latest_timestamp_s is None
+                else max(latest_timestamp_s, snapshot.route_timestamp_s)
+            )
+
+        timed_out = latest_timestamp_s is None or (
+            self._sensor_age(current_s, latest_timestamp_s) or 0.0
+        ) > self.config.live_input.packet_timeout_s
+
+        return LivePacketDiagnostics(
+            missing_required=missing_required,
+            stale_sensors=stale_sensors,
+            route_command_stale=route_command_stale,
+            timed_out=timed_out,
+        )
+
+    def assemble(self, snapshot: LiveSensorSnapshot) -> SensorPacket | None:
+        """Assemble the latest live ROS buffers into a SensorPacket."""
+
+        if not snapshot.camera_frames and snapshot.gps_fix is None and snapshot.imu_sample is None:
+            return None
+
+        packet_time_s = self._time_fn()
+        diagnostics = self.inspect_snapshot(snapshot, packet_time_s)
+        ordered_frames: dict[str, CameraFrame] = {}
+        for camera in self.config.cameras:
+            frame = snapshot.camera_frames.get(camera.name)
+            if frame is not None:
+                ordered_frames[camera.name] = frame
+
+        route_command = snapshot.route_command
+        if diagnostics.route_command_stale:
+            route_command = None
+
+        packet = SensorPacket(
+            frame_id=self._next_frame_id,
+            timestamp_s=packet_time_s,
+            camera_frames=ordered_frames,
+            gps_fix=snapshot.gps_fix,
+            imu_sample=snapshot.imu_sample,
+            route_command=route_command,
+            metadata={
+                "source": "morai_live_ros",
+                "live_missing_required": diagnostics.missing_required,
+                "live_stale_sensors": diagnostics.stale_sensors,
+                "live_timed_out": diagnostics.timed_out,
+                "receive_counts": snapshot.diagnostics.get("receive_counts", {}),
+            },
+        )
+        self._next_frame_id += 1
+        return packet
+
+
+class MoraiLiveRuntime:
+    """Drive the existing competition pipeline from live MORAI ROS topics."""
+
+    def __init__(
+        self,
+        config: CompetitionConfig,
+        pipeline: CompetitionRuntimePipeline | None = None,
+        subscribers: MoraiRosSubscriberManager | None = None,
+        assembler: LivePacketAssembler | None = None,
+    ):
+        self.config = config
+        self.pipeline = pipeline or CompetitionRuntimePipeline(config, publishers=self._build_publishers())
+        self.subscribers = subscribers or MoraiRosSubscriberManager(config)
+        self.assembler = assembler or LivePacketAssembler(config, time_fn=self._select_time_fn())
+        self._last_warning_s = 0.0
+
+    def _select_time_fn(self) -> Callable[[], float]:
+        if self.config.live_input.use_ros_time:
+            try:
+                rospy = import_rospy()
+                return lambda: float(rospy.get_time())
+            except MoraiIntegrationUnavailable:
+                pass
+        return time
+
+    def _build_publishers(self) -> list[object]:
+        publishers: list[object] = []
+        if self.config.output_mode in {"ros", "dual"} and self.config.ros_output.enabled:
+            if self.config.ros_output.publish_command_json:
+                publishers.append(RosJsonCommandPublisher(self.config.ros_output))
+            if self.config.ros_output.publish_debug_json:
+                publishers.append(RosDebugSnapshotPublisher(self.config.ros_output))
+            if self.config.ros_output.publish_actuation:
+                publishers.append(MoraiCtrlCmdPublisher(self.config.ros_output))
+        if self.config.output_mode in {"udp", "dual"} and self.config.udp_output.enabled:
+            publishers.append(UdpCommandPublisher(self.config.udp_output))
+        return publishers
+
+    def run_cycle_once(self) -> tuple[object, object] | None:
+        """Run one live cycle if at least one sensor sample has arrived."""
+
+        live_snapshot = self.subscribers.snapshot()
+        health = self.assembler.inspect_snapshot(live_snapshot)
+        if health.timed_out and not self.config.live_input.fail_closed_on_missing_required:
+            return None
+        if health.missing_required and not self.config.live_input.fail_closed_on_missing_required:
+            return None
+        packet = self.assembler.assemble(live_snapshot)
+        if packet is None:
+            return None
+        return self.pipeline.run_cycle(packet)
+
+    def spin(self, max_cycles: int | None = None) -> int:
+        """Run the live control loop until shutdown or ``max_cycles``."""
+
+        rospy = import_rospy()
+        rate = rospy.Rate(self.config.live_input.loop_hz)
+        cycles = 0
+        while not rospy.is_shutdown():
+            output = self.run_cycle_once()
+            current_time_s = float(rospy.get_time())
+            if output is None and current_time_s - self._last_warning_s >= self.config.live_input.warn_throttle_s:
+                logger.warning("Waiting for live MORAI sensors before running the pipeline.")
+                self._last_warning_s = current_time_s
+            elif output is not None:
+                decision, snapshot = output
+                logger.info(
+                    "live frame=%s intervention=%s steer=%.3f throttle=%.3f brake=%.3f total_ms=%.2f",
+                    decision.frame_id,
+                    decision.intervention,
+                    decision.command.steering,
+                    decision.command.throttle,
+                    decision.command.brake,
+                    snapshot.stage_latency_ms.get("total_cycle", -1.0),
+                )
+                cycles += 1
+                if max_cycles is not None and cycles >= max_cycles:
+                    break
+            rate.sleep()
+        return cycles
+
+
+def run_live_runtime(config: CompetitionConfig, max_cycles: int | None = None) -> int:
+    """Convenience wrapper used by the live CLI entrypoint."""
+
+    runtime = MoraiLiveRuntime(config)
+    return runtime.spin(max_cycles=max_cycles)
