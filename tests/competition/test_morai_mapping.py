@@ -14,6 +14,13 @@ from alpamayo1_5.competition.integrations.morai.message_mapping import (
     populate_control_message,
 )
 
+try:
+    from PIL import Image as _PILImage  # noqa: F401
+
+    HAS_PIL = True
+except ImportError:
+    HAS_PIL = False
+
 
 class _Stamp:
     def __init__(self, value: float):
@@ -32,10 +39,32 @@ class _Header:
 class _ImageMessage:
     def __init__(self) -> None:
         self.header = _Header(12.5, "camera_front")
-        self.width = 640
-        self.height = 480
+        self.width = 2
+        self.height = 1
         self.encoding = "rgb8"
-        self.data = b"1234"
+        self.step = 6
+        self.data = bytes([255, 0, 0, 0, 255, 0])
+
+
+class _CompressedImageMessage:
+    def __init__(self) -> None:
+        self.header = _Header(9.0, "camera_front")
+        # 1x1 PNG for RGB(12,34,56)
+        self.data = bytes.fromhex(
+            "89504E470D0A1A0A0000000D4948445200000001000000010802000000907753DE"
+            "0000000C49444154789C63E21091C3000000B0003B74A25E7B0000000049454E44AE426082"
+        )
+        self.format = "png"
+
+
+class _UnsupportedImageMessage:
+    def __init__(self) -> None:
+        self.header = _Header(12.5, "camera_front")
+        self.width = 2
+        self.height = 1
+        self.encoding = "yuv422"
+        self.step = 4
+        self.data = bytes([0, 1, 2, 3])
 
 
 class _GpsMessage:
@@ -89,11 +118,35 @@ class _CtrlCmd:
 
 class MoraiMappingTest(unittest.TestCase):
     def test_map_camera_message(self) -> None:
-        frame = map_camera_message(_ImageMessage(), "front", frame_id=7)
+        frame = map_camera_message(_ImageMessage(), "front", frame_id=7, message_type="sensor_msgs/Image")
         self.assertEqual(frame.camera_id, "front")
         self.assertEqual(frame.frame_id, 7)
-        self.assertEqual(frame.shape, (480, 640, 3))
+        self.assertEqual(frame.shape, (1, 2, 3))
         self.assertEqual(frame.encoding, "rgb8")
+        self.assertEqual(frame.image[0, 0].tolist(), [255, 0, 0])
+        self.assertEqual(frame.image[0, 1].tolist(), [0, 255, 0])
+        self.assertTrue(frame.metadata["decoded_rgb"])
+
+    @unittest.skipUnless(HAS_PIL, "Pillow is required for compressed image decoding tests")
+    def test_map_compressed_camera_message(self) -> None:
+        frame = map_camera_message(
+            _CompressedImageMessage(),
+            "front",
+            frame_id=8,
+            message_type="sensor_msgs/CompressedImage",
+        )
+        self.assertEqual(frame.frame_id, 8)
+        self.assertEqual(frame.shape[2], 3)
+        self.assertEqual(frame.image[0, 0].tolist(), [12, 34, 56])
+
+    def test_map_camera_message_rejects_unsupported_encoding(self) -> None:
+        with self.assertRaises(ValueError):
+            map_camera_message(
+                _UnsupportedImageMessage(),
+                "front",
+                frame_id=9,
+                message_type="sensor_msgs/Image",
+            )
 
     def test_map_gps_message(self) -> None:
         gps_fix = map_gps_message(_GpsMessage())

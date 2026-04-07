@@ -19,6 +19,18 @@ class _FakeSubscribers:
         return self._snapshot
 
 
+class _CapturePublisher:
+    def __init__(self) -> None:
+        self.decisions = []
+        self.snapshots = []
+
+    def publish(self, decision) -> None:
+        self.decisions.append(decision)
+
+    def publish_debug(self, snapshot) -> None:
+        self.snapshots.append(snapshot)
+
+
 class LiveRuntimeTest(unittest.TestCase):
     def test_live_runtime_runs_one_cycle_with_mocked_buffers(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -67,6 +79,23 @@ class LiveRuntimeTest(unittest.TestCase):
             assembler=assembler,
         )
         self.assertIsNone(runtime.run_cycle_once())
+
+    def test_live_runtime_publishes_safe_stop_while_waiting_when_fail_closed_enabled(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        capture = _CapturePublisher()
+        pipeline = CompetitionRuntimePipeline(config, publishers=[capture])
+        assembler = LivePacketAssembler(config, time_fn=lambda: 2.0)
+        subscribers = _FakeSubscribers(LiveSensorSnapshot())
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        self.assertIsNone(runtime.run_cycle_once())
+        self.assertEqual(len(capture.decisions), 1)
+        self.assertEqual(capture.decisions[0].intervention, "live_input_wait_stop")
+        self.assertIn("live_waiting_for_required_inputs", capture.decisions[0].safety_flags)
 
 
 if __name__ == "__main__":

@@ -70,10 +70,14 @@ Validated by:
 
 - `tests/competition/test_morai_mapping.py`
 - `tests/competition/test_live_packet_assembly.py`
+- raw image decode path in `tests/competition/test_morai_mapping.py`
+- compressed image decode path in `tests/competition/test_morai_mapping.py` when Pillow is installed
 
 Checks:
 
 - ROS-like image/GPS/IMU/route messages map into runtime contracts
+- supported raw image encodings decode into RGB arrays
+- compressed image decoding is covered when the Pillow dependency is present
 - live packet assembly preserves configured camera ordering
 - stale or missing live sensors are surfaced before pipeline execution
 
@@ -108,3 +112,4 @@ python -m unittest discover -s tests\competition -p "test_*.py"
 - Legacy Alpamayo heavy-model validation must be run on a properly provisioned environment.
 - ROS publish behavior is validated structurally via adapters, not against a live ROS master here.
 - MORAI actuation publication still requires the target ROS workspace to provide the actual message package configured in `ros_output.actuation_message_type`.
+- `sensor_msgs/CompressedImage` live tests require Pillow; the test is skipped when Pillow is unavailable in the local environment.

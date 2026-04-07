@@ -60,6 +60,8 @@ class ImagePreprocessor:
                 "timestamp_s": frame.timestamp_s,
                 "encoding": frame.encoding,
                 "frame_id": frame.frame_id,
+                "decoded_rgb": bool(frame.metadata.get("decoded_rgb", False)),
+                "source_encoding": frame.metadata.get("source_encoding"),
             }
 
         return {

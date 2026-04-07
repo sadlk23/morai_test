@@ -16,7 +16,7 @@ The model card contains comprehensive details on model architecture, inputs/outp
 
 - **NVIDIA GPU** with CUDA support
 - **CUDA Toolkit 12.x** with `nvcc` (required to compile `flash-attn` from source). If you don't have it, see [Troubleshooting](#flash-attention-issues) for a fallback using PyTorch's built-in SDPA.
-- **Python 3.12**
+- **Python 3.10+** for the competition runtime and live MORAI path
 
 ### Hardware requirements
 
@@ -119,6 +119,7 @@ An example runtime config is provided at:
 
 ```text
 configs/competition_camera_gps_imu.json
+configs/competition_morai_live.json
 ```
 
 ### Dry-run
@@ -129,6 +130,20 @@ requiring ROS or the heavyweight Alpamayo model environment:
 ```bash
 python -m alpamayo1_5.competition.scripts.dry_run --config configs/competition_camera_gps_imu.json --frames 3
 ```
+
+### Live MORAI path
+
+The repository now includes:
+
+- live ROS subscribers for camera/GPS/IMU/route topics
+- `SensorPacket` assembly from live buffers
+- decoded image handling for `sensor_msgs/Image`
+- optional decoded image handling for `sensor_msgs/CompressedImage` when Pillow is installed
+- separated debug JSON vs MORAI actuation publishing
+- a ROS1 wrapper package under `ros1/alpamayo1_5_ros/`
+
+First live bring-up should use the lightweight planner backend and debug-only
+publishing before enabling real actuation.
 
 ### Latency benchmark
 
@@ -142,6 +157,8 @@ python -m alpamayo1_5.competition.scripts.benchmark_latency --config configs/com
 - `docs/runtime_architecture.md`
 - `docs/competition_runtime_usage.md`
 - `docs/testing_and_validation.md`
+- `docs/morai_live_usage.md`
+- `docs/fix_and_hardening_plan.md`
 
 ## Project Structure
 

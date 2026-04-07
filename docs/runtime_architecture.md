@@ -148,7 +148,22 @@ This preserves a clean split:
 Live MORAI flow:
 
 1. ROS camera/GPS/IMU/route topics are subscribed
-2. messages are converted into runtime contracts
-3. `LivePacketAssembler` builds a `SensorPacket`
-4. `CompetitionRuntimePipeline` runs unchanged
-5. debug JSON and actuation outputs publish separately
+2. camera messages are decoded into RGB image arrays before contract conversion
+3. messages are converted into runtime contracts
+4. `LivePacketAssembler` builds a `SensorPacket`
+5. `CompetitionRuntimePipeline` runs unchanged
+6. debug JSON and actuation outputs publish separately
+
+## Startup And Fail-Closed Behavior
+
+The live runtime now distinguishes:
+
+- waiting for first valid live inputs
+- missing required sensors
+- stale required sensors
+- packet timeout
+
+When `live_input.fail_closed_on_missing_required=true`, the runtime publishes a
+safe stop command with `intervention="live_input_wait_stop"` while waiting for a
+valid live packet. This is intended to make simulator bring-up behavior explicit
+instead of silently doing nothing.

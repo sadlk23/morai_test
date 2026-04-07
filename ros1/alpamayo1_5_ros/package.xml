@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>alpamayo1_5_ros</name>
+  <version>0.1.0</version>
+  <description>ROS1 wrapper package for the Alpamayo competition live runtime.</description>
+
+  <maintainer email="noreply@example.com">Alpamayo Competition Runtime</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+
+  <export />
+</package>

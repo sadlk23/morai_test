@@ -1,0 +1,9 @@
+<launch>
+  <arg name="config" default="$(find alpamayo1_5_ros)/../../../configs/competition_morai_live.json" />
+  <node
+    pkg="alpamayo1_5_ros"
+    type="run_competition_live_node.py"
+    name="alpamayo_morai_live_runtime"
+    output="screen"
+    args="--config $(arg config)" />
+</launch>

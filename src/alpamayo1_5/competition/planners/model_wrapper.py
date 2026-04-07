@@ -72,6 +72,8 @@ class AlpamayoCompatibilityWrapper:
 
     def _camera_tensor(self, image: Any) -> Any:
         torch = self._torch
+        if isinstance(image, (bytes, bytearray, memoryview)):
+            raise ValueError("expected decoded image array, got raw byte payload")
         tensor = image if torch.is_tensor(image) else torch.as_tensor(image)
         if tensor.ndim == 3:
             tensor = tensor.unsqueeze(0)
@@ -110,6 +112,8 @@ class AlpamayoCompatibilityWrapper:
             raise ValueError("model input package has no images")
         if len(model_input.image_payloads) != len(model_input.camera_indices):
             raise ValueError("image payload count does not match camera index count")
+        if any(isinstance(image, (bytes, bytearray, memoryview)) for image in model_input.image_payloads):
+            raise ValueError("model input package contains undecoded raw image payloads")
 
         torch = self._torch
         from alpamayo1_5 import helper

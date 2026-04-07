@@ -7,6 +7,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+SUPPORTED_CAMERA_MESSAGE_TYPES = {"sensor_msgs/Image", "sensor_msgs/CompressedImage"}
+SUPPORTED_GPS_MESSAGE_TYPES = {"sensor_msgs/NavSatFix", "morai_msgs/GPSMessage"}
+SUPPORTED_IMU_MESSAGE_TYPES = {"sensor_msgs/Imu"}
+SUPPORTED_ROUTE_MESSAGE_TYPES = {"std_msgs/String"}
+DEFAULT_MORAI_ACTUATION_MESSAGE_TYPE = "morai_msgs/CtrlCmd"
+
 
 def _default_list() -> list[Any]:
     return []
@@ -268,6 +274,11 @@ class CompetitionConfig:
                 seen_topics.add(camera.topic)
             if not camera.message_type:
                 errors.append(f"camera {camera.name} message_type must not be empty")
+            elif camera.message_type not in SUPPORTED_CAMERA_MESSAGE_TYPES:
+                errors.append(
+                    f"camera {camera.name} message_type must be one of: "
+                    + ", ".join(sorted(SUPPORTED_CAMERA_MESSAGE_TYPES))
+                )
             if camera.width <= 0 or camera.height <= 0:
                 errors.append(f"camera {camera.name} must have positive resolution")
             if camera.max_staleness_s <= 0:
@@ -277,6 +288,10 @@ class CompetitionConfig:
             errors.append("gps.topic must not be empty")
         if not self.gps.message_type:
             errors.append("gps.message_type must not be empty")
+        elif self.gps.message_type not in SUPPORTED_GPS_MESSAGE_TYPES:
+            errors.append(
+                "gps.message_type must be one of: " + ", ".join(sorted(SUPPORTED_GPS_MESSAGE_TYPES))
+            )
         if self.gps.topic in seen_topics:
             errors.append(f"gps.topic duplicates another topic: {self.gps.topic}")
         else:
@@ -288,6 +303,10 @@ class CompetitionConfig:
             errors.append("imu.topic must not be empty")
         if not self.imu.message_type:
             errors.append("imu.message_type must not be empty")
+        elif self.imu.message_type not in SUPPORTED_IMU_MESSAGE_TYPES:
+            errors.append(
+                "imu.message_type must be one of: " + ", ".join(sorted(SUPPORTED_IMU_MESSAGE_TYPES))
+            )
         if self.imu.topic in seen_topics:
             errors.append(f"imu.topic duplicates another topic: {self.imu.topic}")
         else:
@@ -306,6 +325,11 @@ class CompetitionConfig:
                 seen_topics.add(self.route_command.topic)
         if self.route_command.topic and not self.route_command.message_type:
             errors.append("route_command.message_type must not be empty when route topic is set")
+        elif self.route_command.topic and self.route_command.message_type not in SUPPORTED_ROUTE_MESSAGE_TYPES:
+            errors.append(
+                "route_command.message_type must be one of: "
+                + ", ".join(sorted(SUPPORTED_ROUTE_MESSAGE_TYPES))
+            )
         if self.route_command.max_staleness_s <= 0:
             errors.append("route_command.max_staleness_s must be > 0")
 
@@ -355,6 +379,16 @@ class CompetitionConfig:
             errors.append("output_mode=udp requires udp_output.enabled=true")
         if self.ros_output.queue_size <= 0:
             errors.append("ros_output.queue_size must be > 0")
+        if self.output_mode in {"ros", "dual"} and self.ros_output.enabled:
+            if not (
+                self.ros_output.publish_command_json
+                or self.ros_output.publish_debug_json
+                or self.ros_output.publish_actuation
+            ):
+                errors.append(
+                    "ros_output.enabled=true requires at least one of publish_command_json, "
+                    "publish_debug_json, or publish_actuation"
+                )
         if self.ros_output.publish_command_json and not self.ros_output.command_topic:
             errors.append("ros_output.command_topic must not be empty when publish_command_json=true")
         if self.ros_output.publish_debug_json and not self.ros_output.debug_topic:
@@ -368,8 +402,22 @@ class CompetitionConfig:
                 errors.append(
                     "ros_output.actuation_message_type must not be empty when publish_actuation=true"
                 )
+            if "/" not in self.ros_output.actuation_message_type:
+                errors.append(
+                    "ros_output.actuation_message_type must use package/MessageName syntax"
+                )
+            if (
+                self.live_input.adapter == "morai"
+                and self.ros_output.actuation_message_type != DEFAULT_MORAI_ACTUATION_MESSAGE_TYPE
+            ):
+                errors.append(
+                    "morai live adapter currently supports actuation_message_type="
+                    + DEFAULT_MORAI_ACTUATION_MESSAGE_TYPE
+                )
         if self.ros_output.command_mode not in {"pedal", "velocity"}:
             errors.append("ros_output.command_mode must be pedal or velocity")
+        if self.ros_output.command_mode == "velocity" and not self.ros_output.publish_actuation:
+            errors.append("ros_output.command_mode=velocity requires publish_actuation=true")
         if self.planner.checkpoint_path is not None and not Path(self.planner.checkpoint_path).exists():
             errors.append(f"planner.checkpoint_path does not exist: {self.planner.checkpoint_path}")
         if self.planner.backend == "legacy_alpamayo" and not (

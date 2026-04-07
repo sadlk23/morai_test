@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from alpamayo1_5.competition.contracts import DebugSnapshot, SafetyDecision
@@ -12,6 +13,8 @@ from alpamayo1_5.competition.integrations.morai.ros_message_utils import (
     import_rospy,
 )
 from alpamayo1_5.competition.runtime.config_competition import RosOutputConfig
+
+logger = logging.getLogger(__name__)
 
 
 class RosDebugSnapshotPublisher:
@@ -65,6 +68,7 @@ class MoraiCtrlCmdPublisher:
     """Publish actual actuation messages for MORAI-compatible drive loops."""
 
     def __init__(self, config: RosOutputConfig):
+        self.config = config
         self._rospy = import_rospy()
         if not self._rospy.core.is_initialized():  # pragma: no cover - ROS host dependent
             self._rospy.init_node(config.node_name, anonymous=True, disable_signals=True)
@@ -75,15 +79,35 @@ class MoraiCtrlCmdPublisher:
             self._message_cls,
             queue_size=config.queue_size,
         )
+        logger.info(
+            "Initialized MORAI actuation publisher topic=%s message_type=%s command_mode=%s",
+            config.actuation_topic,
+            config.actuation_message_type,
+            config.command_mode,
+        )
+
+    def _validate_message_shape(self, message: Any) -> None:
+        """Fail early if the configured actuation message lacks expected fields."""
+
+        steer_ok = hasattr(message, "front_steer") or hasattr(message, "steering")
+        if not steer_ok:
+            raise ValueError("actuation message must expose front_steer or steering")
+        if self._command_mode == "pedal":
+            if not hasattr(message, "accel") or not hasattr(message, "brake"):
+                raise ValueError("pedal command mode requires accel and brake fields")
+        if self._command_mode == "velocity" and not hasattr(message, "velocity"):
+            raise ValueError("velocity command mode requires a velocity field")
 
     def build_message(self, decision: SafetyDecision) -> Any:
         """Build the ROS actuation message without publishing it."""
 
-        return populate_control_message(
+        message = populate_control_message(
             self._message_cls(),
             decision.command,
             command_mode=self._command_mode,
         )
+        self._validate_message_shape(message)
+        return message
 
     def publish(self, decision: SafetyDecision) -> None:
         self._publisher.publish(self.build_message(decision))

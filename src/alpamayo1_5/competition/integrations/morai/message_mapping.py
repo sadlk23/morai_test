@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 from alpamayo1_5.competition.contracts import CameraFrame, ControlCommand, GpsFix, ImuSample
+from alpamayo1_5.competition.integrations.morai.image_decode import decode_ros_image_message
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import (
     get_header_frame_id,
     get_nested_attr,
@@ -39,11 +40,13 @@ def map_camera_message(
     message: Any,
     camera_name: str,
     frame_id: int,
+    message_type: str,
     expected_resolution: tuple[int, int] | None = None,
 ) -> CameraFrame:
     """Convert a ROS image-like message into a :class:`CameraFrame`."""
 
     timestamp_s = get_stamp_seconds(message)
+    decoded_image, source_encoding = decode_ros_image_message(message, message_type=message_type)
     encoding = getattr(message, "encoding", None)
     width = getattr(message, "width", None)
     height = getattr(message, "height", None)
@@ -63,14 +66,16 @@ def map_camera_message(
         "ros_message_type": infer_message_type_name(message),
         "ros_frame_id": get_header_frame_id(message),
         "compressed_format": getattr(message, "format", None),
+        "source_encoding": source_encoding,
+        "decoded_rgb": True,
     }
     return CameraFrame(
         camera_id=camera_name,
         timestamp_s=timestamp_s,
         frame_id=frame_id,
-        image=getattr(message, "data", None),
-        shape=shape,
-        encoding=encoding or getattr(message, "format", None),
+        image=decoded_image,
+        shape=tuple(int(dim) for dim in decoded_image.shape),
+        encoding=encoding or getattr(message, "format", None) or "rgb8",
         metadata=metadata,
     )
 

@@ -20,9 +20,10 @@ class LivePacketAssemblyTest(unittest.TestCase):
                 camera_id="front",
                 timestamp_s=10.0,
                 frame_id=11,
-                image=b"123",
-                shape=(720, 1280, 3),
+                image=[[[0, 0, 0] for _ in range(2)] for _ in range(2)],
+                shape=(2, 2, 3),
                 encoding="rgb8",
+                metadata={"decoded_rgb": True},
             ),
         )
         state.update_gps(GpsFix(timestamp_s=10.0, latitude_deg=37.0, longitude_deg=127.0))
@@ -36,6 +37,7 @@ class LivePacketAssemblyTest(unittest.TestCase):
         self.assertEqual(packet.frame_id, 0)
         self.assertIn("front", packet.camera_frames)
         self.assertEqual(packet.route_command, "keep lane")
+        self.assertEqual(packet.metadata["live_blocking_reasons"], [])
 
     def test_missing_and_stale_detection(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -46,15 +48,17 @@ class LivePacketAssemblyTest(unittest.TestCase):
                 camera_id="front",
                 timestamp_s=5.0,
                 frame_id=1,
-                image=b"123",
-                shape=(720, 1280, 3),
+                image=[[[0, 0, 0] for _ in range(2)] for _ in range(2)],
+                shape=(2, 2, 3),
                 encoding="rgb8",
+                metadata={"decoded_rgb": True},
             ),
         )
         diagnostics = LivePacketAssembler(config, time_fn=lambda: 6.0).inspect_snapshot(state.snapshot())
         self.assertIn("gps", diagnostics.missing_required)
         self.assertIn("imu", diagnostics.missing_required)
         self.assertIn("front", diagnostics.stale_sensors)
+        self.assertIn("packet_timeout", diagnostics.blocking_reasons)
 
 
 if __name__ == "__main__":

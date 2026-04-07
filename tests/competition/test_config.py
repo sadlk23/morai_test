@@ -27,6 +27,34 @@ class CompetitionConfigTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_competition_config(handle.name)
 
+    def test_invalid_camera_message_type_fails(self) -> None:
+        payload = CompetitionConfig().to_dict()
+        payload["cameras"] = [
+            {"name": "front", "topic": "/a", "message_type": "sensor_msgs/Foo"},
+        ]
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            with self.assertRaises(ValueError):
+                load_competition_config(handle.name)
+
+    def test_ros_output_requires_one_publish_mode(self) -> None:
+        payload = CompetitionConfig().to_dict()
+        payload["cameras"] = [
+            {"name": "front", "topic": "/a", "message_type": "sensor_msgs/Image"},
+        ]
+        payload["ros_output"] = {
+            "enabled": True,
+            "publish_command_json": False,
+            "publish_debug_json": False,
+            "publish_actuation": False,
+        }
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            with self.assertRaises(ValueError):
+                load_competition_config(handle.name)
+
 
 if __name__ == "__main__":
     unittest.main()

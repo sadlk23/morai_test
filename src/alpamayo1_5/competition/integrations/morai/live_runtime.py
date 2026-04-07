@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from time import sleep, time
-from typing import Callable, Iterable
+from time import time
+from typing import Callable
 
-from alpamayo1_5.competition.contracts import CameraFrame, SensorPacket
+from alpamayo1_5.competition.contracts import CameraFrame, ControlCommand, DebugSnapshot, SafetyDecision, SensorPacket
 from alpamayo1_5.competition.integrations.morai.publishers import (
     MoraiCtrlCmdPublisher,
     RosDebugSnapshotPublisher,
@@ -30,6 +30,7 @@ class LivePacketDiagnostics:
     stale_sensors: list[str]
     route_command_stale: bool
     timed_out: bool
+    blocking_reasons: list[str]
 
 
 class LivePacketAssembler:
@@ -108,12 +109,22 @@ class LivePacketAssembler:
         timed_out = latest_timestamp_s is None or (
             self._sensor_age(current_s, latest_timestamp_s) or 0.0
         ) > self.config.live_input.packet_timeout_s
+        blocking_reasons: list[str] = []
+        if timed_out:
+            blocking_reasons.append("packet_timeout")
+        if missing_required:
+            blocking_reasons.extend(["missing:%s" % item for item in missing_required])
+        if stale_sensors:
+            blocking_reasons.extend(["stale:%s" % item for item in stale_sensors])
+        if route_command_stale:
+            blocking_reasons.append("stale:route_command")
 
         return LivePacketDiagnostics(
             missing_required=missing_required,
             stale_sensors=stale_sensors,
             route_command_stale=route_command_stale,
             timed_out=timed_out,
+            blocking_reasons=blocking_reasons,
         )
 
     def assemble(self, snapshot: LiveSensorSnapshot) -> SensorPacket | None:
@@ -146,7 +157,9 @@ class LivePacketAssembler:
                 "live_missing_required": diagnostics.missing_required,
                 "live_stale_sensors": diagnostics.stale_sensors,
                 "live_timed_out": diagnostics.timed_out,
+                "live_blocking_reasons": diagnostics.blocking_reasons,
                 "receive_counts": snapshot.diagnostics.get("receive_counts", {}),
+                "last_errors": snapshot.diagnostics.get("last_errors", {}),
             },
         )
         self._next_frame_id += 1
@@ -168,6 +181,7 @@ class MoraiLiveRuntime:
         self.subscribers = subscribers or MoraiRosSubscriberManager(config)
         self.assembler = assembler or LivePacketAssembler(config, time_fn=self._select_time_fn())
         self._last_warning_s = 0.0
+        self._last_wait_publish_s = 0.0
 
     def _select_time_fn(self) -> Callable[[], float]:
         if self.config.live_input.use_ros_time:
@@ -196,14 +210,69 @@ class MoraiLiveRuntime:
 
         live_snapshot = self.subscribers.snapshot()
         health = self.assembler.inspect_snapshot(live_snapshot)
-        if health.timed_out and not self.config.live_input.fail_closed_on_missing_required:
+        should_wait = health.timed_out or bool(health.missing_required)
+        if should_wait and not self.config.live_input.fail_closed_on_missing_required:
             return None
-        if health.missing_required and not self.config.live_input.fail_closed_on_missing_required:
+        if should_wait and self.config.live_input.fail_closed_on_missing_required:
+            self._publish_waiting_stop(live_snapshot, health)
             return None
         packet = self.assembler.assemble(live_snapshot)
         if packet is None:
+            if self.config.live_input.fail_closed_on_missing_required:
+                self._publish_waiting_stop(live_snapshot, health)
             return None
         return self.pipeline.run_cycle(packet)
+
+    def _publish_waiting_stop(
+        self,
+        live_snapshot: LiveSensorSnapshot,
+        health: LivePacketDiagnostics,
+    ) -> None:
+        """Publish a safe stop while waiting for a valid live packet."""
+
+        now_s = self.assembler._time_fn()
+        if now_s - self._last_wait_publish_s < self.config.live_input.warn_throttle_s:
+            return
+        self._last_wait_publish_s = now_s
+        receive_counts = live_snapshot.diagnostics.get("receive_counts", {})
+        last_errors = live_snapshot.diagnostics.get("last_errors", {})
+        decision = SafetyDecision(
+            frame_id=-1,
+            timestamp_s=now_s,
+            command=ControlCommand(
+                frame_id=-1,
+                timestamp_s=now_s,
+                steering=0.0,
+                throttle=0.0,
+                brake=self.config.safety.emergency_brake_value,
+                target_speed_mps=0.0,
+                valid=False,
+                reason="waiting_for_live_inputs",
+            ),
+            intervention="live_input_wait_stop",
+            risk_level="high",
+            safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
+            fallback_used=True,
+            diagnostics={
+                "blocking_reasons": list(health.blocking_reasons),
+                "receive_counts": receive_counts,
+                "last_errors": last_errors,
+            },
+        )
+        snapshot = DebugSnapshot(
+            frame_id=-1,
+            timestamp_s=now_s,
+            diagnostics={
+                "waiting_for_live_inputs": True,
+                "blocking_reasons": list(health.blocking_reasons),
+                "receive_counts": receive_counts,
+                "last_errors": last_errors,
+            },
+            safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
+        )
+        publish_errors = self.pipeline._publish(decision, snapshot)
+        if publish_errors:
+            logger.warning("Failed to publish live wait-stop command: %s", publish_errors)
 
     def spin(self, max_cycles: int | None = None) -> int:
         """Run the live control loop until shutdown or ``max_cycles``."""
@@ -215,7 +284,14 @@ class MoraiLiveRuntime:
             output = self.run_cycle_once()
             current_time_s = float(rospy.get_time())
             if output is None and current_time_s - self._last_warning_s >= self.config.live_input.warn_throttle_s:
-                logger.warning("Waiting for live MORAI sensors before running the pipeline.")
+                live_snapshot = self.subscribers.snapshot()
+                health = self.assembler.inspect_snapshot(live_snapshot, now_s=current_time_s)
+                logger.warning(
+                    "Waiting for live MORAI sensors. blocking_reasons=%s receive_counts=%s last_errors=%s",
+                    health.blocking_reasons,
+                    live_snapshot.diagnostics.get("receive_counts", {}),
+                    live_snapshot.diagnostics.get("last_errors", {}),
+                )
                 self._last_warning_s = current_time_s
             elif output is not None:
                 decision, snapshot = output
