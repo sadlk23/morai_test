@@ -70,6 +70,34 @@ class AlpamayoCompatibilityWrapper:
         self.ensure_loaded()
         return self._load_error is None and self._model is not None and self._processor is not None and self._torch is not None
 
+    def validate_model_input(self, model_input: ModelInputPackage) -> dict[str, Any]:
+        """Validate model-facing inputs before entering the heavy legacy path."""
+
+        diagnostics: dict[str, Any] = {
+            "camera_order": list(model_input.camera_order),
+            "camera_indices": list(model_input.camera_indices),
+            "camera_count": len(model_input.image_payloads),
+            "nav_text_present": bool(model_input.nav_text),
+            "target_resolution": model_input.target_resolution,
+        }
+        if not model_input.valid:
+            raise ValueError("invalid model input package")
+        if not model_input.image_payloads:
+            raise ValueError("model input package has no images")
+        if len(model_input.image_payloads) != len(model_input.camera_indices):
+            raise ValueError("image payload count does not match camera index count")
+        if len(model_input.image_payloads) != len(model_input.camera_order):
+            raise ValueError("image payload count does not match camera order length")
+        if any(isinstance(image, (bytes, bytearray, memoryview)) for image in model_input.image_payloads):
+            raise ValueError("model input package contains undecoded raw image payloads")
+        for index, image in enumerate(model_input.image_payloads):
+            shape = getattr(image, "shape", None)
+            if shape is None or len(shape) != 3:
+                raise ValueError("image payload at index %d is not an HWC decoded image array" % index)
+            if shape[-1] != 3:
+                raise ValueError("image payload at index %d must have 3 RGB channels" % index)
+        return diagnostics
+
     def _camera_tensor(self, image: Any) -> Any:
         torch = self._torch
         if isinstance(image, (bytes, bytearray, memoryview)):
@@ -106,14 +134,7 @@ class AlpamayoCompatibilityWrapper:
 
         if not self.is_available():
             raise RuntimeError(self._load_error or "legacy wrapper unavailable")
-        if not model_input.valid:
-            raise ValueError("invalid model input package")
-        if not model_input.image_payloads:
-            raise ValueError("model input package has no images")
-        if len(model_input.image_payloads) != len(model_input.camera_indices):
-            raise ValueError("image payload count does not match camera index count")
-        if any(isinstance(image, (bytes, bytearray, memoryview)) for image in model_input.image_payloads):
-            raise ValueError("model input package contains undecoded raw image payloads")
+        validation_diagnostics = self.validate_model_input(model_input)
 
         torch = self._torch
         from alpamayo1_5 import helper
@@ -163,9 +184,7 @@ class AlpamayoCompatibilityWrapper:
         return WrapperForwardResult(
             waypoints_xy=[(float(x), float(y)) for x, y in waypoint_tensor],
             diagnostics={
-                "camera_order": model_input.camera_order,
-                "camera_count": len(model_input.image_payloads),
-                "target_resolution": model_input.target_resolution,
+                **validation_diagnostics,
                 "cot_preview": cot[:240],
                 "use_diffusion_compatibility_path": True,
             },

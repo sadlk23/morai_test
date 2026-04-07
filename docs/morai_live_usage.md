@@ -18,6 +18,14 @@ ROS1 catkin wrapper:
 roslaunch alpamayo1_5_ros run_competition_live.launch
 ```
 
+Debug-first ROS1 wrapper with an explicit Python 3.10+ runtime interpreter:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_live.launch \
+  runtime_python:=/usr/bin/python3.10 \
+  debug_only:=true
+```
+
 ## What The Live Adapter Owns
 
 The MORAI adapter layer:
@@ -52,7 +60,17 @@ node. The implemented deployment choice is:
 
 1. keep the competition runtime on Python 3.10+
 2. provide a ROS1 wrapper package for catkin integration
-3. fail early with a clear message when the wrapper is started under Python 3.8
+3. let the ROS1 wrapper hand off to a configured Python 3.10+ interpreter
+4. fail early with a clear message when the wrapper is started under Python 3.8 without that interpreter handoff
+
+Supported wrapper env vars:
+
+- `ALPAMAYO_REPO_ROOT`
+- `ALPAMAYO_CONFIG_PATH`
+- `ALPAMAYO_RUNTIME_PYTHON`
+- `ALPAMAYO_DEBUG_ONLY`
+- `ALPAMAYO_ENABLE_ACTUATION`
+- `ALPAMAYO_ARM_ACTUATION`
 
 Default MORAI mapping in this repository:
 
@@ -94,10 +112,19 @@ Compressed image note:
 2. Verify actual ROS message types and update `message_type` fields if needed.
 3. Confirm the actuation topic and message type used by the target MORAI workspace.
 4. Start with `planner.backend=lightweight`.
-5. Set `ros_output.publish_actuation=false` and confirm debug JSON first.
+5. Keep `ros_output.publish_actuation=false` or launch with `debug_only:=true`.
 6. Confirm the runtime publishes `live_input_wait_stop` while sensors are still missing.
-7. Enable real actuation only after JSON/debug behavior matches expectations.
-8. Monitor `artifacts/morai_live_logs/` for metrics, snapshots, and command history.
+7. Verify `live_system_state` moves from `waiting` to `debug_only` or `ready`.
+8. Verify `CameraFrame.metadata["decoded_rgb"] = true` in debug snapshots.
+9. Enable real actuation only after JSON/debug behavior matches expectations.
+10. Monitor `artifacts/morai_live_logs/` for metrics, snapshots, and command history.
+
+`live_input_wait_stop` note:
+
+- waiting-stop publication is intentionally separate from warning throttling
+- `live_input.safe_stop_publish_interval_s` controls how often the safe stop command is republished
+- `live_input.warn_throttle_s` controls how often waiting warnings are logged
+- for simulator bring-up, keep `safe_stop_publish_interval_s` short enough to maintain a stable stop state
 
 ## Debug-First Bring-Up
 
@@ -109,6 +136,27 @@ Recommended first pass:
 4. `ros_output.publish_actuation=false`
 5. confirm camera/GPS/IMU rates and stale warnings
 6. only then switch `publish_actuation=true`
+
+Recommended command sequence:
+
+```bash
+python -m alpamayo1_5.competition.scripts.run_competition \
+  --config configs/competition_morai_live.json \
+  --debug-only
+```
+
+Then, only after verifying debug output:
+
+```bash
+python -m alpamayo1_5.competition.scripts.run_competition \
+  --config configs/competition_morai_live.json \
+  --enable-actuation \
+  --arm-actuation
+```
+
+`--enable-actuation` without `--arm-actuation` now fails early by design.
+
+`--debug-only` cannot be combined with actuation flags.
 
 ## ROS1 Wrapper Package
 
@@ -122,6 +170,74 @@ The repository now includes a minimal catkin wrapper package:
 This wrapper improves ROS launch practicality, but it still depends on the
 runtime being executed with Python 3.10+.
 
+Practical catkin bring-up:
+
+1. Source your ROS workspace.
+2. Make sure `morai_msgs`, `sensor_msgs`, and `std_msgs` are installed.
+3. Use `runtime_python:=/path/to/python3.10+` when launching from a Python 3.8 Noetic shell.
+4. Start with `debug_only:=true`.
+5. Enable `enable_actuation:=true arm_actuation:=true` only after debug validation.
+
+Example:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_live.launch \
+  repo_root:=/path/to/alpamayo1.5-main \
+  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
+  runtime_python:=/usr/bin/python3.10 \
+  debug_only:=true
+```
+
+## Exact First Steps On Ubuntu 20.04 + ROS1 Noetic + MORAI
+
+1. Install or activate a Python 3.10+ environment for the competition runtime.
+2. Install the project dependencies into that Python 3.10+ environment.
+3. Source ROS and your catkin workspace:
+
+```bash
+source /opt/ros/noetic/setup.bash
+source ~/catkin_ws/devel/setup.bash
+```
+
+4. Confirm the simulator topics and types:
+
+```bash
+rostopic list
+rostopic type /camera/front/image_raw
+rostopic type /gps
+rostopic type /imu
+rostopic type /ctrl_cmd
+```
+
+5. Edit `configs/competition_morai_live.json` so camera, GPS, IMU, route, and command topics match your workspace.
+6. Keep the planner backend as `lightweight`.
+7. Launch debug-only first:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_live.launch \
+  repo_root:=/path/to/alpamayo1.5-main \
+  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
+  runtime_python:=/usr/bin/python3.10 \
+  debug_only:=true
+```
+
+8. Check that:
+   - sensor callbacks increment receive counts
+   - `live_system_state` moves out of `waiting`
+   - decoded camera frames report `decoded_rgb=true`
+   - debug JSON topics are publishing
+9. Only after that, enable actuation explicitly:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_live.launch \
+  repo_root:=/path/to/alpamayo1.5-main \
+  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
+  runtime_python:=/usr/bin/python3.10 \
+  debug_only:=false \
+  enable_actuation:=true \
+  arm_actuation:=true
+```
+
 ## Environment-Dependent Limits
 
 This repository now contains the live MORAI adapter path, but actual simulator
@@ -130,4 +246,6 @@ validation still depends on the local ROS workspace:
 - the real message packages must be installed
 - the real topic graph must match config
 - final actuation semantics must be confirmed against the target MORAI setup
-- stock ROS1 Noetic Python 3.8 still cannot run the competition runtime directly
+- stock ROS1 Noetic Python 3.8 still cannot run the competition runtime directly without the wrapper handing off to Python 3.10+
+- `morai_msgs/CtrlCmd` must exist in the local ROS workspace before real actuation publishing can be enabled
+- `legacy_alpamayo` still needs heavy dependencies, checkpoint availability, and a GPU-capable runtime environment

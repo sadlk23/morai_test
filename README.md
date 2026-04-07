@@ -145,6 +145,38 @@ The repository now includes:
 First live bring-up should use the lightweight planner backend and debug-only
 publishing before enabling real actuation.
 
+The live MORAI config now defaults to debug-first operation:
+
+- `publish_command_json=true`
+- `publish_debug_json=true`
+- `publish_actuation=false`
+
+To enable real actuation for a one-off run, both flags are required:
+
+```bash
+python -m alpamayo1_5.competition.scripts.run_competition \
+  --config configs/competition_morai_live.json \
+  --enable-actuation \
+  --arm-actuation
+```
+
+For ROS1 Noetic environments that still launch under Python 3.8, use the ROS1
+wrapper package and point it at a Python 3.10+ interpreter:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_live.launch runtime_python:=/usr/bin/python3.10
+```
+
+For a safe first MORAI bring-up, start with:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_live.launch \
+  repo_root:=/path/to/alpamayo1.5-main \
+  config:=/path/to/alpamayo1.5-main/configs/competition_morai_live.json \
+  runtime_python:=/usr/bin/python3.10 \
+  debug_only:=true
+```
+
 ### Latency benchmark
 
 ```bash
@@ -159,6 +191,7 @@ python -m alpamayo1_5.competition.scripts.benchmark_latency --config configs/com
 - `docs/testing_and_validation.md`
 - `docs/morai_live_usage.md`
 - `docs/fix_and_hardening_plan.md`
+- `docs/final_completion_plan.md`
 
 ## Project Structure
 

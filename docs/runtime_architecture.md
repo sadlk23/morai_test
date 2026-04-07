@@ -167,3 +167,15 @@ When `live_input.fail_closed_on_missing_required=true`, the runtime publishes a
 safe stop command with `intervention="live_input_wait_stop"` while waiting for a
 valid live packet. This is intended to make simulator bring-up behavior explicit
 instead of silently doing nothing.
+
+The live runtime also reports a high-level `live_system_state` in safety and
+debug diagnostics:
+
+- `waiting`
+- `degraded`
+- `debug_only`
+- `ready`
+- `publishing_actuation`
+
+This is intended to make simulator bring-up easier to diagnose from logs and
+JSON debug output.

@@ -97,7 +97,9 @@
     "queue_size": 1,
     "publish_command_json": true,
     "publish_debug_json": true,
-    "publish_actuation": true,
+    "publish_actuation": false,
+    "require_actuation_arm": true,
+    "actuation_armed": false,
     "actuation_topic": "/ctrl_cmd",
     "actuation_message_type": "morai_msgs/CtrlCmd",
     "command_mode": "pedal"
@@ -125,6 +127,7 @@
     "packet_timeout_s": 0.5,
     "use_ros_time": true,
     "fail_closed_on_missing_required": true,
+    "safe_stop_publish_interval_s": 0.1,
     "warn_throttle_s": 2.0
   },
   "replay": {

@@ -174,6 +174,8 @@ class RosOutputConfig:
     publish_command_json: bool = True
     publish_debug_json: bool = True
     publish_actuation: bool = False
+    require_actuation_arm: bool = True
+    actuation_armed: bool = False
     actuation_topic: str = "/ctrl_cmd"
     actuation_message_type: str = "morai_msgs/CtrlCmd"
     command_mode: str = "pedal"
@@ -191,6 +193,7 @@ class LiveInputConfig:
     packet_timeout_s: float = 0.5
     use_ros_time: bool = True
     fail_closed_on_missing_required: bool = True
+    safe_stop_publish_interval_s: float = 0.1
     warn_throttle_s: float = 2.0
 
 
@@ -369,6 +372,8 @@ class CompetitionConfig:
             errors.append("live_input.subscriber_queue_size must be > 0")
         if self.live_input.packet_timeout_s <= 0:
             errors.append("live_input.packet_timeout_s must be > 0")
+        if self.live_input.safe_stop_publish_interval_s <= 0:
+            errors.append("live_input.safe_stop_publish_interval_s must be > 0")
         if self.live_input.warn_throttle_s <= 0:
             errors.append("live_input.warn_throttle_s must be > 0")
         if self.udp_output.enabled and self.udp_output.port <= 0:
@@ -414,10 +419,24 @@ class CompetitionConfig:
                     "morai live adapter currently supports actuation_message_type="
                     + DEFAULT_MORAI_ACTUATION_MESSAGE_TYPE
                 )
+            if self.ros_output.require_actuation_arm and not self.ros_output.actuation_armed:
+                errors.append(
+                    "ros_output.publish_actuation=true requires ros_output.actuation_armed=true "
+                    "when require_actuation_arm=true"
+                )
+            if not self.live_input.fail_closed_on_missing_required:
+                errors.append(
+                    "publish_actuation=true requires live_input.fail_closed_on_missing_required=true"
+                )
+            if self.safety.emergency_brake_value <= 0:
+                errors.append("publish_actuation=true requires safety.emergency_brake_value > 0")
         if self.ros_output.command_mode not in {"pedal", "velocity"}:
             errors.append("ros_output.command_mode must be pedal or velocity")
         if self.ros_output.command_mode == "velocity" and not self.ros_output.publish_actuation:
             errors.append("ros_output.command_mode=velocity requires publish_actuation=true")
+        camera_indices = [camera.camera_index for camera in self.cameras if camera.camera_index is not None]
+        if len(camera_indices) != len(set(camera_indices)):
+            errors.append("camera.camera_index values must be unique when provided")
         if self.planner.checkpoint_path is not None and not Path(self.planner.checkpoint_path).exists():
             errors.append(f"planner.checkpoint_path does not exist: {self.planner.checkpoint_path}")
         if self.planner.backend == "legacy_alpamayo" and not (
@@ -426,6 +445,13 @@ class CompetitionConfig:
             errors.append(
                 "legacy_alpamayo backend requires planner.checkpoint_path or planner.legacy_model_id"
             )
+        if self.planner.backend == "legacy_alpamayo":
+            missing_indices = [camera.name for camera in self.cameras if camera.camera_index is None]
+            if missing_indices:
+                errors.append(
+                    "legacy_alpamayo backend requires camera_index for all configured cameras: "
+                    + ", ".join(missing_indices)
+                )
 
         if errors:
             raise ValueError("Invalid competition config:\n- " + "\n- ".join(errors))

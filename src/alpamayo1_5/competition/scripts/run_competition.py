@@ -7,9 +7,30 @@ import logging
 
 from alpamayo1_5.competition.integrations.morai.live_runtime import run_live_runtime
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import MoraiIntegrationUnavailable
-from alpamayo1_5.competition.runtime.config_competition import load_competition_config
+from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig, load_competition_config
 from alpamayo1_5.competition.runtime.mock_data import make_mock_replay
 from alpamayo1_5.competition.runtime.pipeline import CompetitionRuntimePipeline
+
+
+def apply_runtime_mode_overrides(
+    config: CompetitionConfig,
+    debug_only: bool = False,
+    enable_actuation: bool = False,
+    arm_actuation: bool = False,
+) -> CompetitionConfig:
+    """Apply launch-time overrides and revalidate the config."""
+
+    if debug_only and (enable_actuation or arm_actuation):
+        raise ValueError("--debug-only cannot be combined with --enable-actuation or --arm-actuation")
+    if debug_only:
+        config.ros_output.publish_actuation = False
+        config.ros_output.actuation_armed = False
+    if enable_actuation:
+        config.ros_output.publish_actuation = True
+    if arm_actuation:
+        config.ros_output.actuation_armed = True
+    config.validate()
+    return config
 
 
 def main() -> None:
@@ -28,9 +49,33 @@ def main() -> None:
         default=None,
         help="Optional live-loop cycle limit for integration tests",
     )
+    parser.add_argument(
+        "--debug-only",
+        action="store_true",
+        help="Disable actuation publishing even if configured, while keeping debug outputs active",
+    )
+    parser.add_argument(
+        "--enable-actuation",
+        action="store_true",
+        help="Enable actuation publishing for this run",
+    )
+    parser.add_argument(
+        "--arm-actuation",
+        action="store_true",
+        help="Explicitly arm actuation publishing for this run",
+    )
     args = parser.parse_args()
 
-    config = load_competition_config(args.config)
+    try:
+        config = load_competition_config(args.config)
+        config = apply_runtime_mode_overrides(
+            config,
+            debug_only=args.debug_only,
+            enable_actuation=args.enable_actuation,
+            arm_actuation=args.arm_actuation,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if args.dry_run:
         pipeline = CompetitionRuntimePipeline(config)

@@ -1,9 +1,19 @@
 <launch>
-  <arg name="config" default="$(find alpamayo1_5_ros)/../../../configs/competition_morai_live.json" />
+  <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT $(find alpamayo1_5_ros)/../../..)" />
+  <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH $(arg repo_root)/configs/competition_morai_live.json)" />
+  <arg name="runtime_python" default="$(optenv ALPAMAYO_RUNTIME_PYTHON)" />
+  <arg name="debug_only" default="true" />
+  <arg name="enable_actuation" default="false" />
+  <arg name="arm_actuation" default="false" />
   <node
     pkg="alpamayo1_5_ros"
     type="run_competition_live_node.py"
     name="alpamayo_morai_live_runtime"
     output="screen"
-    args="--config $(arg config)" />
+    args="--repo-root $(arg repo_root) --config $(arg config)">
+    <env name="ALPAMAYO_RUNTIME_PYTHON" value="$(arg runtime_python)" />
+    <env name="ALPAMAYO_DEBUG_ONLY" value="$(arg debug_only)" />
+    <env name="ALPAMAYO_ENABLE_ACTUATION" value="$(arg enable_actuation)" />
+    <env name="ALPAMAYO_ARM_ACTUATION" value="$(arg arm_actuation)" />
+  </node>
 </launch>

@@ -13,6 +13,8 @@ Checks:
 - config loads
 - duplicate camera names fail
 - runtime validation is enforced before execution
+- unsafe actuation enablement without arming fails
+- conflicting live CLI mode overrides fail early
 
 ### Gate B: IO and preprocess
 
@@ -35,6 +37,7 @@ Checks:
 
 - lightweight planner emits the configured waypoint count and sane target speed
 - legacy wrapper fails closed when heavy dependencies are unavailable
+- legacy wrapper distinguishes invalid live image payloads from environment failures
 
 ### Gate D: Controller and safety
 
@@ -55,6 +58,7 @@ Validated by:
 
 - `tests/competition/test_pipeline.py`
 - `tests/competition/test_live_runtime.py`
+- `tests/competition/test_ros_wrapper.py`
 - `python -m alpamayo1_5.competition.scripts.dry_run --config configs/competition_camera_gps_imu.json --frames 2`
 
 Checks:
@@ -63,6 +67,7 @@ Checks:
 - planner/controller/safety outputs are produced
 - per-stage latency is recorded
 - mocked live subscriber buffers can be assembled and executed through the same pipeline
+- ROS1 wrapper helper logic validates repo/config/interpreter assumptions before launch
 
 ### Gate E2: Live MORAI adapter boundary
 
@@ -113,3 +118,4 @@ python -m unittest discover -s tests\competition -p "test_*.py"
 - ROS publish behavior is validated structurally via adapters, not against a live ROS master here.
 - MORAI actuation publication still requires the target ROS workspace to provide the actual message package configured in `ros_output.actuation_message_type`.
 - `sensor_msgs/CompressedImage` live tests require Pillow; the test is skipped when Pillow is unavailable in the local environment.
+- ROS1 Noetic Python 3.8 deployment is supported through the wrapper handoff strategy, not by running the competition runtime natively under Python 3.8.

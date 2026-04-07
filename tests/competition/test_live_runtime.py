@@ -65,6 +65,8 @@ class LiveRuntimeTest(unittest.TestCase):
         decision, snapshot = output
         self.assertGreaterEqual(decision.command.throttle, 0.0)
         self.assertIn("planner", snapshot.stage_latency_ms)
+        self.assertIn("live_system_state", decision.diagnostics)
+        self.assertIn(decision.diagnostics["live_system_state"], {"debug_only", "publishing_actuation", "ready", "degraded"})
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -96,6 +98,30 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertEqual(len(capture.decisions), 1)
         self.assertEqual(capture.decisions[0].intervention, "live_input_wait_stop")
         self.assertIn("live_waiting_for_required_inputs", capture.decisions[0].safety_flags)
+        self.assertEqual(capture.decisions[0].diagnostics["live_system_state"], "waiting")
+
+    def test_wait_stop_publish_interval_is_independent_from_warning_throttle(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        config.live_input.warn_throttle_s = 10.0
+        config.live_input.safe_stop_publish_interval_s = 0.1
+        capture = _CapturePublisher()
+        pipeline = CompetitionRuntimePipeline(config, publishers=[capture])
+        now = {"value": 2.0}
+        assembler = LivePacketAssembler(config, time_fn=lambda: now["value"])
+        subscribers = _FakeSubscribers(LiveSensorSnapshot())
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        self.assertIsNone(runtime.run_cycle_once())
+        now["value"] = 2.05
+        self.assertIsNone(runtime.run_cycle_once())
+        now["value"] = 2.15
+        self.assertIsNone(runtime.run_cycle_once())
+        self.assertEqual(len(capture.decisions), 2)
+        self.assertTrue(all(item.intervention == "live_input_wait_stop" for item in capture.decisions))
 
 
 if __name__ == "__main__":

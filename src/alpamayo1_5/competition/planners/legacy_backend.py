@@ -19,37 +19,62 @@ class LegacyAlpamayoPlannerBackend(PlannerBackend):
         self.cameras = cameras
         self.wrapper = AlpamayoCompatibilityWrapper(config)
 
+    def _invalid_result(
+        self,
+        planner_input: PlannerInput,
+        error: str,
+        backend_status: str,
+        model_input: object | None = None,
+    ) -> PlanResult:
+        diagnostics = {
+            "backend": self.name,
+            "backend_status": backend_status,
+            "error": error,
+            "configured_cameras": [camera.name for camera in self.cameras],
+            "route_command_present": bool(planner_input.route_command),
+        }
+        if model_input is not None:
+            diagnostics["model_input_present"] = True
+            if hasattr(model_input, "camera_order"):
+                diagnostics["camera_order"] = list(getattr(model_input, "camera_order"))
+            if hasattr(model_input, "camera_indices"):
+                diagnostics["camera_indices"] = list(getattr(model_input, "camera_indices"))
+            if hasattr(model_input, "diagnostics"):
+                diagnostics["model_input_diagnostics"] = getattr(model_input, "diagnostics")
+        else:
+            diagnostics["model_input_present"] = False
+        return PlanResult(
+            frame_id=planner_input.frame_id,
+            timestamp_s=planner_input.timestamp_s,
+            planner_name=self.name,
+            waypoints_xy=[],
+            target_speed_mps=0.0,
+            confidence=0.0,
+            stop_probability=1.0,
+            risk_score=1.0,
+            valid=False,
+            diagnostics=diagnostics,
+        )
+
     def plan(self, planner_input: PlannerInput) -> PlanResult:
         self.wrapper.ensure_loaded()
         if not self.wrapper.is_available():
-            return PlanResult(
-                frame_id=planner_input.frame_id,
-                timestamp_s=planner_input.timestamp_s,
-                planner_name=self.name,
-                waypoints_xy=[],
-                target_speed_mps=0.0,
-                confidence=0.0,
-                stop_probability=1.0,
-                risk_score=1.0,
-                valid=False,
-                diagnostics={"error": self.wrapper.load_error or "model_unavailable"},
+            return self._invalid_result(
+                planner_input,
+                self.wrapper.load_error or "model_unavailable",
+                backend_status="backend_unavailable",
+                model_input=planner_input.model_input_package,
             )
 
         try:
             model_input = planner_input.model_input_package
             if model_input is None:
-                return PlanResult(
-                    frame_id=planner_input.frame_id,
-                    timestamp_s=planner_input.timestamp_s,
-                    planner_name=self.name,
-                    waypoints_xy=[],
-                    target_speed_mps=0.0,
-                    confidence=0.0,
-                    stop_probability=1.0,
-                    risk_score=1.0,
-                    valid=False,
-                    diagnostics={"error": "missing_model_input_package"},
+                return self._invalid_result(
+                    planner_input,
+                    "missing_model_input_package",
+                    backend_status="missing_model_input",
                 )
+            input_diagnostics = self.wrapper.validate_model_input(model_input)
             wrapper_output = self.wrapper.forward(model_input)
             waypoints_xy = wrapper_output.waypoints_xy
             target_speed = derive_target_speed(
@@ -71,19 +96,23 @@ class LegacyAlpamayoPlannerBackend(PlannerBackend):
                 valid=is_valid_waypoint_set(waypoints_xy),
                 diagnostics={
                     "backend": self.name,
+                    "backend_status": "ok",
+                    "route_command_present": bool(planner_input.route_command),
+                    "validated_model_input": input_diagnostics,
                     **wrapper_output.diagnostics,
                 },
             )
+        except ValueError as exc:
+            return self._invalid_result(
+                planner_input,
+                f"{type(exc).__name__}: {exc}",
+                backend_status="invalid_live_model_input",
+                model_input=planner_input.model_input_package,
+            )
         except Exception as exc:
-            return PlanResult(
-                frame_id=planner_input.frame_id,
-                timestamp_s=planner_input.timestamp_s,
-                planner_name=self.name,
-                waypoints_xy=[],
-                target_speed_mps=0.0,
-                confidence=0.0,
-                stop_probability=1.0,
-                risk_score=1.0,
-                valid=False,
-                diagnostics={"error": f"{type(exc).__name__}: {exc}"},
+            return self._invalid_result(
+                planner_input,
+                f"{type(exc).__name__}: {exc}",
+                backend_status="runtime_error",
+                model_input=planner_input.model_input_package,
             )

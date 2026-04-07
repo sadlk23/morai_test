@@ -8,30 +8,136 @@ actual runtime implementation stays in the main Python package under `src/`.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+
+DEFAULT_CONFIG_RELATIVE = Path("configs") / "competition_morai_live.json"
+ENV_REPO_ROOT = "ALPAMAYO_REPO_ROOT"
+ENV_CONFIG_PATH = "ALPAMAYO_CONFIG_PATH"
+ENV_RUNTIME_PYTHON = "ALPAMAYO_RUNTIME_PYTHON"
+ENV_DEBUG_ONLY = "ALPAMAYO_DEBUG_ONLY"
+ENV_ENABLE_ACTUATION = "ALPAMAYO_ENABLE_ACTUATION"
+ENV_ARM_ACTUATION = "ALPAMAYO_ARM_ACTUATION"
 
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def main() -> None:
-    if sys.version_info < (3, 10):
-        raise SystemExit(
-            "alpamayo1_5_ros requires Python 3.10+ for the current competition runtime. "
-            "Stock ROS1 Noetic Python 3.8 is not sufficient for direct execution. "
-            "Use a newer interpreter environment or keep ROS1 as the transport layer only."
-        )
-    repo_root = _repo_root()
-    sys.path.insert(0, str(repo_root / "src"))
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
+
+def resolve_repo_root(cli_value: str | None = None) -> Path:
+    """Resolve the repository root using CLI, env, or relative path."""
+
+    candidate = cli_value or os.environ.get(ENV_REPO_ROOT)
+    repo_root = Path(candidate).expanduser().resolve() if candidate else _repo_root()
+    if not (repo_root / "src" / "alpamayo1_5").exists():
+        raise SystemExit(
+            "Could not resolve Alpamayo repo root. Set --repo-root or %s to a checkout that contains src/alpamayo1_5."
+            % ENV_REPO_ROOT
+        )
+    return repo_root
+
+
+def resolve_config_path(repo_root: Path, cli_value: str | None = None) -> Path:
+    """Resolve the runtime config path using CLI, env, or repo-relative default."""
+
+    candidate = cli_value or os.environ.get(ENV_CONFIG_PATH)
+    config_path = Path(candidate).expanduser().resolve() if candidate else (repo_root / DEFAULT_CONFIG_RELATIVE)
+    if not config_path.exists():
+        raise SystemExit(
+            "Could not find competition config at %s. Set --config or %s explicitly."
+            % (config_path, ENV_CONFIG_PATH)
+        )
+    return config_path
+
+
+def resolve_runtime_python(cli_value: str | None = None) -> str:
+    """Resolve the interpreter used to execute the live runtime."""
+
+    runtime_python = cli_value or os.environ.get(ENV_RUNTIME_PYTHON, sys.executable)
+    if Path(runtime_python).expanduser().exists():
+        return str(Path(runtime_python).expanduser().resolve())
+    if shutil.which(runtime_python):
+        return runtime_python
+    raise SystemExit(
+        "Could not resolve runtime interpreter %r. Set --runtime-python or %s to a valid Python 3.10+ executable."
+        % (runtime_python, ENV_RUNTIME_PYTHON)
+    )
+
+
+def build_runtime_argv(
+    runtime_python: str,
+    config_path: Path,
+    passthrough: list[str],
+    debug_only: bool = False,
+    enable_actuation: bool = False,
+    arm_actuation: bool = False,
+) -> list[str]:
+    """Build the runtime command that launches the main competition script."""
+
+    argv = [
+        runtime_python,
+        "-m",
+        "alpamayo1_5.competition.scripts.run_competition",
+        "--config",
+        str(config_path),
+    ]
+    if debug_only:
+        argv.append("--debug-only")
+    if enable_actuation:
+        argv.append("--enable-actuation")
+    if arm_actuation:
+        argv.append("--arm-actuation")
+    return argv + list(passthrough)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--repo-root", default=None)
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--runtime-python", default=None)
+    parser.add_argument("--debug-only", action="store_true")
+    parser.add_argument("--enable-actuation", action="store_true")
+    parser.add_argument("--arm-actuation", action="store_true")
+    args, passthrough = parser.parse_known_args()
+    repo_root = resolve_repo_root(args.repo_root)
+    config_path = resolve_config_path(repo_root, args.config)
+    runtime_python = resolve_runtime_python(args.runtime_python)
+    debug_only = args.debug_only or _truthy_env(ENV_DEBUG_ONLY)
+    enable_actuation = args.enable_actuation or _truthy_env(ENV_ENABLE_ACTUATION)
+    arm_actuation = args.arm_actuation or _truthy_env(ENV_ARM_ACTUATION)
+
+    runtime_argv = build_runtime_argv(
+        runtime_python=runtime_python,
+        config_path=config_path,
+        passthrough=passthrough,
+        debug_only=debug_only,
+        enable_actuation=enable_actuation,
+        arm_actuation=arm_actuation,
+    )
+    runtime_env = os.environ.copy()
+    runtime_env["PYTHONPATH"] = str(repo_root / "src") + os.pathsep + runtime_env.get("PYTHONPATH", "")
+
+    if sys.version_info < (3, 10):
+        if not runtime_python or runtime_python == sys.executable:
+            raise SystemExit(
+                "alpamayo1_5_ros was launched under Python %d.%d, but the competition runtime requires Python 3.10+. "
+                "Set --runtime-python or %s to a Python 3.10+ interpreter."
+                % (sys.version_info.major, sys.version_info.minor, ENV_RUNTIME_PYTHON)
+            )
+        raise SystemExit(subprocess.call(runtime_argv, env=runtime_env))
+
+    sys.path.insert(0, str(repo_root / "src"))
     from alpamayo1_5.competition.scripts.run_competition import main as run_main
 
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--config", default=str(repo_root / "configs" / "competition_morai_live.json"))
-    args, passthrough = parser.parse_known_args()
-    sys.argv = [sys.argv[0], "--config", args.config] + passthrough
+    sys.argv = [sys.argv[0]] + runtime_argv[3:]
+    os.environ.update(runtime_env)
     run_main()
 
 

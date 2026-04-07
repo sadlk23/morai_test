@@ -69,6 +69,10 @@ class MoraiCtrlCmdPublisher:
 
     def __init__(self, config: RosOutputConfig):
         self.config = config
+        if config.require_actuation_arm and not config.actuation_armed:
+            raise ValueError(
+                "MoraiCtrlCmdPublisher requires ros_output.actuation_armed=true when require_actuation_arm=true"
+            )
         self._rospy = import_rospy()
         if not self._rospy.core.is_initialized():  # pragma: no cover - ROS host dependent
             self._rospy.init_node(config.node_name, anonymous=True, disable_signals=True)
@@ -80,10 +84,11 @@ class MoraiCtrlCmdPublisher:
             queue_size=config.queue_size,
         )
         logger.info(
-            "Initialized MORAI actuation publisher topic=%s message_type=%s command_mode=%s",
+            "Initialized MORAI actuation publisher topic=%s message_type=%s command_mode=%s armed=%s",
             config.actuation_topic,
             config.actuation_message_type,
             config.command_mode,
+            config.actuation_armed,
         )
 
     def _validate_message_shape(self, message: Any) -> None:

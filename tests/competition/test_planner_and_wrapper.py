@@ -48,6 +48,23 @@ class PlannerAndWrapperTest(unittest.TestCase):
         plan = legacy.plan(planner_input)
         self.assertFalse(plan.valid)
         self.assertIn("error", plan.diagnostics)
+        self.assertIn("backend_status", plan.diagnostics)
+
+    def test_legacy_wrapper_rejects_raw_image_payloads(self) -> None:
+        planner_input = self._planner_input()
+        planner_input.model_input_package.image_payloads = [
+            b"raw-bytes" for _ in planner_input.model_input_package.camera_indices
+        ]
+        legacy = LegacyAlpamayoPlannerBackend(self.config.planner, self.config.cameras)
+        legacy.wrapper._loaded = True
+        legacy.wrapper._load_error = None
+        legacy.wrapper._model = object()
+        legacy.wrapper._processor = object()
+        legacy.wrapper._torch = object()
+        plan = legacy.plan(planner_input)
+        self.assertFalse(plan.valid)
+        self.assertEqual(plan.diagnostics["backend_status"], "invalid_live_model_input")
+        self.assertIn("undecoded raw image payloads", plan.diagnostics["error"])
 
 
 if __name__ == "__main__":

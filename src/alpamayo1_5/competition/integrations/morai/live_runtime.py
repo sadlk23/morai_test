@@ -205,6 +205,25 @@ class MoraiLiveRuntime:
             publishers.append(UdpCommandPublisher(self.config.udp_output))
         return publishers
 
+    def _system_state(
+        self,
+        health: LivePacketDiagnostics,
+        live_snapshot: LiveSensorSnapshot,
+        publishing_decision: bool = False,
+    ) -> str:
+        """Summarize the current live-runtime state for diagnostics."""
+
+        if health.timed_out or health.missing_required:
+            return "waiting"
+        if live_snapshot.diagnostics.get("last_errors") or health.stale_sensors:
+            return "degraded"
+        if publishing_decision and self.config.ros_output.publish_actuation:
+            return "publishing_actuation"
+        if self.config.ros_output.publish_debug_json or self.config.ros_output.publish_command_json:
+            if not self.config.ros_output.publish_actuation:
+                return "debug_only"
+        return "ready"
+
     def run_cycle_once(self) -> tuple[object, object] | None:
         """Run one live cycle if at least one sensor sample has arrived."""
 
@@ -221,7 +240,16 @@ class MoraiLiveRuntime:
             if self.config.live_input.fail_closed_on_missing_required:
                 self._publish_waiting_stop(live_snapshot, health)
             return None
-        return self.pipeline.run_cycle(packet)
+        decision, snapshot = self.pipeline.run_cycle(packet)
+        state_name = self._system_state(health, live_snapshot, publishing_decision=True)
+        decision.diagnostics["live_system_state"] = state_name
+        decision.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
+        decision.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
+        snapshot.diagnostics["live_system_state"] = state_name
+        snapshot.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
+        snapshot.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
+        snapshot.diagnostics["last_errors"] = live_snapshot.diagnostics.get("last_errors", {})
+        return decision, snapshot
 
     def _publish_waiting_stop(
         self,
@@ -231,7 +259,7 @@ class MoraiLiveRuntime:
         """Publish a safe stop while waiting for a valid live packet."""
 
         now_s = self.assembler._time_fn()
-        if now_s - self._last_wait_publish_s < self.config.live_input.warn_throttle_s:
+        if now_s - self._last_wait_publish_s < self.config.live_input.safe_stop_publish_interval_s:
             return
         self._last_wait_publish_s = now_s
         receive_counts = live_snapshot.diagnostics.get("receive_counts", {})
@@ -257,6 +285,7 @@ class MoraiLiveRuntime:
                 "blocking_reasons": list(health.blocking_reasons),
                 "receive_counts": receive_counts,
                 "last_errors": last_errors,
+                "live_system_state": self._system_state(health, live_snapshot, publishing_decision=False),
             },
         )
         snapshot = DebugSnapshot(
@@ -267,6 +296,7 @@ class MoraiLiveRuntime:
                 "blocking_reasons": list(health.blocking_reasons),
                 "receive_counts": receive_counts,
                 "last_errors": last_errors,
+                "live_system_state": self._system_state(health, live_snapshot, publishing_decision=False),
             },
             safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
         )
@@ -287,7 +317,8 @@ class MoraiLiveRuntime:
                 live_snapshot = self.subscribers.snapshot()
                 health = self.assembler.inspect_snapshot(live_snapshot, now_s=current_time_s)
                 logger.warning(
-                    "Waiting for live MORAI sensors. blocking_reasons=%s receive_counts=%s last_errors=%s",
+                    "Waiting for live MORAI sensors. state=%s blocking_reasons=%s receive_counts=%s last_errors=%s",
+                    self._system_state(health, live_snapshot, publishing_decision=False),
                     health.blocking_reasons,
                     live_snapshot.diagnostics.get("receive_counts", {}),
                     live_snapshot.diagnostics.get("last_errors", {}),
@@ -296,8 +327,9 @@ class MoraiLiveRuntime:
             elif output is not None:
                 decision, snapshot = output
                 logger.info(
-                    "live frame=%s intervention=%s steer=%.3f throttle=%.3f brake=%.3f total_ms=%.2f",
+                    "live frame=%s state=%s intervention=%s steer=%.3f throttle=%.3f brake=%.3f total_ms=%.2f",
                     decision.frame_id,
+                    decision.diagnostics.get("live_system_state", "unknown"),
                     decision.intervention,
                     decision.command.steering,
                     decision.command.throttle,

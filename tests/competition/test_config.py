@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 
+from alpamayo1_5.competition.scripts.run_competition import apply_runtime_mode_overrides
 from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig, load_competition_config
 
 
@@ -49,6 +50,42 @@ class CompetitionConfigTest(unittest.TestCase):
             "publish_debug_json": False,
             "publish_actuation": False,
         }
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            with self.assertRaises(ValueError):
+                load_competition_config(handle.name)
+
+    def test_publish_actuation_requires_arm_when_enabled(self) -> None:
+        payload = CompetitionConfig().to_dict()
+        payload["cameras"] = [
+            {"name": "front", "topic": "/a", "message_type": "sensor_msgs/Image"},
+        ]
+        payload["live_input"]["enabled"] = True
+        payload["ros_output"]["publish_actuation"] = True
+        payload["ros_output"]["actuation_armed"] = False
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            with self.assertRaises(ValueError):
+                load_competition_config(handle.name)
+
+    def test_debug_only_conflicts_with_actuation_flags(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        with self.assertRaises(ValueError):
+            apply_runtime_mode_overrides(
+                config,
+                debug_only=True,
+                enable_actuation=True,
+                arm_actuation=False,
+            )
+
+    def test_live_safe_stop_publish_interval_must_be_positive(self) -> None:
+        payload = CompetitionConfig().to_dict()
+        payload["cameras"] = [
+            {"name": "front", "topic": "/a", "message_type": "sensor_msgs/Image"},
+        ]
+        payload["live_input"]["safe_stop_publish_interval_s"] = 0.0
         with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
             json.dump(payload, handle)
             handle.flush()
