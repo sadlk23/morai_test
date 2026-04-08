@@ -18,7 +18,11 @@ from alpamayo1_5.competition.preprocess.model_input import ModelInputPackager
 from alpamayo1_5.competition.preprocess.sensor_fusion import SensorFusion
 from alpamayo1_5.competition.preprocess.state_preprocess import StatePreprocessor
 from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import legacy_serial_bridge_diagnostics
-from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig
+from alpamayo1_5.competition.runtime.config_competition import (
+    CompetitionConfig,
+    competition_profile_diagnostics,
+    runtime_policy_diagnostics,
+)
 from alpamayo1_5.competition.runtime.debug_dump import DebugDumper
 from alpamayo1_5.competition.runtime.latency_monitor import LatencyMonitor
 from alpamayo1_5.competition.runtime.metrics import JsonlWriter
@@ -143,8 +147,12 @@ class CompetitionRuntimePipeline:
                     "plan_confidence": plan.confidence,
                     "plan_valid": plan.valid,
                     "decision_intervention": decision.intervention,
+                    "competition_profile": competition_profile_diagnostics(self.config),
+                    "runtime_policy": runtime_policy_diagnostics(self.config),
                 },
             )
+            decision.diagnostics["competition_profile"] = competition_profile_diagnostics(self.config)
+            decision.diagnostics["runtime_policy"] = runtime_policy_diagnostics(self.config)
             if self.config.legacy_serial_bridge.enabled:
                 snapshot.diagnostics["legacy_serial_bridge"] = legacy_serial_bridge_diagnostics(
                     self.config.legacy_serial_bridge
@@ -179,6 +187,8 @@ class CompetitionRuntimePipeline:
                 fallback_used=True,
                 diagnostics={"error": f"{type(exc).__name__}: {exc}"},
             )
+            decision.diagnostics["competition_profile"] = competition_profile_diagnostics(self.config)
+            decision.diagnostics["runtime_policy"] = runtime_policy_diagnostics(self.config)
             snapshot = DebugSnapshot(
                 frame_id=packet.frame_id,
                 timestamp_s=packet.timestamp_s,
@@ -186,6 +196,8 @@ class CompetitionRuntimePipeline:
                 diagnostics={
                     "runtime_error": f"{type(exc).__name__}: {exc}",
                     "publisher_warnings": list(self.publisher_warnings),
+                    "competition_profile": competition_profile_diagnostics(self.config),
+                    "runtime_policy": runtime_policy_diagnostics(self.config),
                 },
             )
 

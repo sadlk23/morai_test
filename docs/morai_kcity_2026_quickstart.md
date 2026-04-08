@@ -4,11 +4,14 @@
 
 - OS: Ubuntu 20.04
 - ROS: ROS1 Noetic
-- Host: desktop PC
+- Host: desktop PC only
+- rosbridge: optional
 - Map: `R-KR_PG_K-City_2025`
 - Vehicle: `2023_Hyundai_ioniq5`
 - Wheelbase baseline: `3.0 m`
 - MORAI control: UDP Ego Ctrl Cmd, longi type 1 (accel/brake)
+- Sensor limits: GPS `1`, IMU `1`, Camera `2`, 3D LiDAR `2`
+- Camera pitch limit: `+/-30 deg`
 
 Use:
 
@@ -26,12 +29,15 @@ Use:
 - optional vehicle status (diagnostics-only when enabled): `/ERP/serial_data` by default placeholder
 
 Optional helper topics are non-blocking. Missing helper topics must not crash runtime.
+Competition Vehicle Status and Ego Vehicle Status can differ by event program, so the on-site topic and message type must be confirmed before enabling diagnostics.
 
 ## Output Modes
 
 1. Direct MORAI actuation
 - topic: `/ctrl_cmd`
 - type: `morai_msgs/CtrlCmd`
+- competition rule: longi type `1`, pedal mode, `accel` + `brake` + `steering`
+- simulator gear and ExternalCtrl mode are not owned by participant code
 
 2. Legacy moo serial bridge
 - topic: `/Control/serial_data`
@@ -71,6 +77,7 @@ rosmsg show morai_msgs/CtrlCmd
 
 Expected pedal mode fields:
 
+- longi type `1`
 - `longlCmdType` or `longiCmdType`
 - `steering` or `front_steer`
 - `accel`
@@ -81,6 +88,16 @@ Expected velocity mode fields:
 - `longlCmdType` or `longiCmdType`
 - `steering` or `front_steer`
 - `velocity`
+
+Runtime policy in the K-City config stays on pedal mode by default. If `rosmsg show morai_msgs/CtrlCmd` does not expose the pedal-mode fields above, do not drive until the workspace message package is corrected.
+
+## Gear And Mode Policy
+
+- Initial simulator state is `Keyboard + P`
+- Race start transition to `D + ExternalCtrl` is owned by the operator or judging program
+- Participant code must not force gear changes
+- Participant code must not force Keyboard or ExternalCtrl mode transitions
+- This repository only publishes `/ctrl_cmd` actuation and optional diagnostics
 
 ## Bring-Up Order (Debug-Only First)
 
@@ -149,6 +166,7 @@ rostopic type camera_image
 rostopic type /fix
 rostopic type /gps
 rostopic type /imu
+rostopic type /ERP/serial_data
 rostopic type /Local/heading
 rostopic type /Local/utm
 rostopic type /ctrl_cmd
@@ -161,10 +179,13 @@ rostopic hz /imu
 
 ## Trouble Points
 
+- desktop-only field setup means laptop assumptions, power profiles, and USB layout can diverge from the venue PC
 - Python 3.10 handoff missing from ROS1 launch shell
+- ROS workspace message package mismatch (`morai_msgs/CtrlCmd`, helper-topic message types)
 - topic mismatch between simulator and config (camera/gps names)
 - message type mismatch (`NavSatFix`, `Imu`, `Float32MultiArray`, `CtrlCmd`)
 - `CtrlCmd` field mismatch now fails fast during direct actuation startup
-- `vehicle_status` is diagnostics-only and is not a bring-up blocker
+- `vehicle_status` is diagnostics-only and is not a bring-up blocker, but the on-site topic/type must be confirmed
 - stale sensor warnings due to low frequency or timestamp drift
 - actuation not armed (`enable_actuation` without `arm_actuation`)
+- display, ethernet, and simulator-PC network link issues can block topic graph visibility on site

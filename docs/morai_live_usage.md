@@ -9,6 +9,18 @@ This repository keeps the existing MORAI competition runtime skeleton and now su
 
 Both can be enabled together, and debug-first behavior is preserved.
 
+Target competition assumptions for the single K-City bring-up path:
+
+- Ubuntu 20.04
+- ROS1 Noetic
+- desktop PC only
+- rosbridge optional
+- map `R-KR_PG_K-City_2025`
+- vehicle `2023_Hyundai_ioniq5`
+- wheelbase `3.0 m`
+- sensor limits: GPS `1`, IMU `1`, Camera `2`, 3D LiDAR `2`
+- camera pitch limit: `+/-30 deg`
+
 ## Runtime And ROS Wrapper
 
 Runtime entrypoint:
@@ -62,6 +74,7 @@ Optional helper topics (debug only, non-blocking):
 - optional `vehicle_status` diagnostics topic when configured
 
 If optional helper topics are absent, runtime does not fail.
+Competition Vehicle Status and Ego Vehicle Status can differ by venue program, so the on-site topic and message type must still be checked before relying on diagnostics.
 
 ## Output Paths
 
@@ -69,7 +82,10 @@ Direct MORAI output:
 
 - topic: `/ctrl_cmd`
 - type: `morai_msgs/CtrlCmd`
-- longi mode: type 1 in pedal mode
+- longi type 1 in pedal mode
+- longitudinal fields: `accel` and `brake`
+- lateral field: `steering` or `front_steer`
+- participant code does not own simulator gear or ExternalCtrl transitions
 
 Legacy moo bridge output:
 
@@ -90,6 +106,15 @@ Brake conversion rule in legacy bridge:
 - Default is debug-first
 - Actuation is allowed only when explicitly armed
 - `--debug-only` disables direct actuation and legacy serial bridge publishing
+- runtime policy diagnostics expose pedal mode, direct actuation enablement, legacy bridge state, vehicle-status subscriber state, and operator-managed gear/mode ownership
+
+## Gear And External Control Policy
+
+- Initial simulator state is `Keyboard + P`
+- Start transition to `D + ExternalCtrl` is owned by the operator or judging program
+- Team code must not force gear changes
+- Team code must not force Keyboard or ExternalCtrl mode changes
+- This repository intentionally limits itself to `/ctrl_cmd` actuation plus optional diagnostics
 
 Allowed actuation command pattern:
 
@@ -118,6 +143,9 @@ rostopic type camera_image
 rostopic type /fix
 rostopic type /gps
 rostopic type /imu
+rostopic type /ERP/serial_data
+rostopic type /Local/heading
+rostopic type /Local/utm
 rostopic type /ctrl_cmd
 rostopic type /Control/serial_data
 rostopic echo /alpamayo/debug_snapshot
@@ -128,9 +156,11 @@ rostopic hz /imu
 
 ## Common Trouble Points
 
+- desktop-only venue PCs may expose different display, ethernet, and USB conditions than a development laptop
 - Python handoff mismatch: wrapper starts under Python 3.8 but `runtime_python` is missing
 - topic mismatch: simulator publishes `camera_image` or `/gps` while config points elsewhere
-- message type mismatch: topic type differs from config `message_type`
+- message package mismatch: topic type differs from config `message_type`, or the ROS workspace has the wrong `morai_msgs`
 - `CtrlCmd` contract mismatch: direct actuation now fails fast if required fields are missing
+- `vehicle_status` topic/type can differ by venue setup and must be checked on site even though it is diagnostics-only
 - stale sensor warnings: timestamp/Hz mismatch causes waiting or degraded states
 - actuation arming: publish flags set without `arm_actuation` or debug-only still enabled

@@ -65,8 +65,10 @@ class MoraiPublisherTest(unittest.TestCase):
             "alpamayo1_5.competition.integrations.morai.publishers.import_message_class",
             return_value=_CtrlCmdInvalid,
         ):
-            with self.assertRaises(MoraiActuationContractError):
+            with self.assertRaises(MoraiActuationContractError) as ctx:
                 MoraiCtrlCmdPublisher(config)
+        self.assertIn("longi type 1 pedal mode", str(ctx.exception))
+        self.assertIn("accel/brake + steering", str(ctx.exception))
 
 
 if __name__ == "__main__":

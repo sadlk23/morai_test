@@ -72,6 +72,11 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("blocking_reasons", decision.diagnostics["live_health"])
         self.assertIn("optional_ego", decision.diagnostics)
         self.assertIn("legacy_serial_bridge", snapshot.diagnostics)
+        self.assertIn("runtime_policy", decision.diagnostics)
+        self.assertTrue(decision.diagnostics["runtime_policy"]["pedal_mode"])
+        self.assertFalse(decision.diagnostics["runtime_policy"]["controls_gear_mode"])
+        self.assertFalse(decision.diagnostics["runtime_policy"]["controls_external_mode"])
+        self.assertIn("competition_profile", snapshot.diagnostics)
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -165,6 +170,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertFalse(decision.diagnostics["optional_ego"]["heading_available"])
         self.assertFalse(decision.diagnostics["optional_ego"]["utm_available"])
         self.assertIn("optional_ego", snapshot.diagnostics)
+        self.assertEqual(decision.diagnostics["runtime_policy"]["gear_mode_policy"], "operator_managed")
 
     def test_vehicle_status_is_reflected_in_diagnostics_when_present(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
@@ -210,6 +216,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertTrue(decision.diagnostics["vehicle_status"]["available"])
         self.assertIn("speed_delta_mps", decision.diagnostics["command_status"])
         self.assertIn("vehicle_status", snapshot.diagnostics)
+        self.assertTrue(decision.diagnostics["runtime_policy"]["vehicle_status_subscriber_enabled"])
 
 
 if __name__ == "__main__":

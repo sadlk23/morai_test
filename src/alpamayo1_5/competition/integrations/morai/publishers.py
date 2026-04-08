@@ -100,6 +100,10 @@ class MoraiCtrlCmdPublisher:
             config.actuation_armed,
         )
         logger.info("MORAI actuation contract=%s", self._contract_summary)
+        logger.info(
+            "Direct MORAI actuation only publishes steering/longitudinal command fields; "
+            "simulator gear and ExternalCtrl state remain operator-managed."
+        )
 
     def _startup_self_check(self) -> dict[str, Any]:
         """Fail fast when the target CtrlCmd contract is incompatible."""
@@ -109,13 +113,20 @@ class MoraiCtrlCmdPublisher:
         try:
             validate_control_message_contract(message, command_mode=self._command_mode)
         except ValueError as exc:
+            expected_mode = (
+                "longi type 1 pedal mode (accel/brake + steering)"
+                if self._command_mode == "pedal"
+                else "velocity mode (velocity + steering)"
+            )
             raise MoraiActuationContractError(
                 "Direct actuation self-check failed for %s on topic %s: %s. "
+                "Competition direct actuation expects %s. "
                 "Run `rosmsg show %s` and confirm pedal mode needs %s or velocity mode needs %s."
                 % (
                     self.config.actuation_message_type,
                     self.config.actuation_topic,
                     exc,
+                    expected_mode,
                     self.config.actuation_message_type,
                     "longlCmdType|longiCmdType + steering|front_steer + accel + brake",
                     "longlCmdType|longiCmdType + steering|front_steer + velocity",

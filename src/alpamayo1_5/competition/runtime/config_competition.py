@@ -200,6 +200,33 @@ class LegacySerialBridgeConfig:
 
 
 @dataclass(slots=True)
+class CompetitionProfileConfig:
+    """Competition metadata and operational policy notes."""
+
+    competition_name: str = ""
+    map_name: str = ""
+    vehicle_model: str = ""
+    wheelbase_m: float | None = None
+    ros_distro: str = ""
+    os_version: str = ""
+    desktop_only: bool = False
+    rosbridge_optional: bool = True
+    max_gps: int | None = None
+    max_imu: int | None = None
+    max_camera: int | None = None
+    max_lidar: int | None = None
+    camera_pitch_limit_deg: float | None = None
+    direct_actuation_topic: str = ""
+    direct_actuation_message_type: str = ""
+    direct_actuation_longitudinal_type: int | None = None
+    direct_actuation_command_mode: str = ""
+    participant_controls_gear_mode: bool = False
+    participant_controls_external_mode: bool = False
+    initial_vehicle_state: str = ""
+    operator_transition_state: str = ""
+
+
+@dataclass(slots=True)
 class OptionalEgoTopicsConfig:
     """Optional helper ego topics used for diagnostics only."""
 
@@ -316,6 +343,7 @@ class CompetitionConfig:
     live_input: LiveInputConfig = field(default_factory=LiveInputConfig)
     ros_output: RosOutputConfig = field(default_factory=RosOutputConfig)
     legacy_serial_bridge: LegacySerialBridgeConfig = field(default_factory=LegacySerialBridgeConfig)
+    competition_profile: CompetitionProfileConfig = field(default_factory=CompetitionProfileConfig)
     optional_ego_topics: OptionalEgoTopicsConfig = field(default_factory=OptionalEgoTopicsConfig)
     vehicle_status: VehicleStatusConfig = field(default_factory=VehicleStatusConfig)
     morai_udp_reference: MoraiUdpReferenceConfig = field(default_factory=MoraiUdpReferenceConfig)
@@ -534,6 +562,26 @@ class CompetitionConfig:
             errors.append("live_input.warn_throttle_s must be > 0")
         if self.udp_output.enabled and self.udp_output.port <= 0:
             errors.append("udp_output.port must be > 0 when UDP is enabled")
+        if self.competition_profile.wheelbase_m is not None:
+            if self.competition_profile.wheelbase_m <= 0:
+                errors.append("competition_profile.wheelbase_m must be > 0 when set")
+            if abs(self.controller.pure_pursuit.wheelbase_m - self.competition_profile.wheelbase_m) > 1e-6:
+                errors.append(
+                    "competition_profile.wheelbase_m must match controller.pure_pursuit.wheelbase_m"
+                )
+            if abs(self.controller.stanley.wheelbase_m - self.competition_profile.wheelbase_m) > 1e-6:
+                errors.append(
+                    "competition_profile.wheelbase_m must match controller.stanley.wheelbase_m"
+                )
+        for sensor_limit_name in ("max_gps", "max_imu", "max_camera", "max_lidar"):
+            sensor_limit = getattr(self.competition_profile, sensor_limit_name)
+            if sensor_limit is not None and sensor_limit <= 0:
+                errors.append(f"competition_profile.{sensor_limit_name} must be > 0 when set")
+        if (
+            self.competition_profile.camera_pitch_limit_deg is not None
+            and self.competition_profile.camera_pitch_limit_deg < 0
+        ):
+            errors.append("competition_profile.camera_pitch_limit_deg must be >= 0 when set")
         if self.output_mode == "ros" and not self.ros_output.enabled:
             errors.append("output_mode=ros requires ros_output.enabled=true")
         if self.output_mode == "udp" and not self.udp_output.enabled:
@@ -594,6 +642,37 @@ class CompetitionConfig:
             errors.append("ros_output.command_mode must be pedal or velocity")
         if self.ros_output.command_mode == "velocity" and not self.ros_output.publish_actuation:
             errors.append("ros_output.command_mode=velocity requires publish_actuation=true")
+        if (
+            self.competition_profile.direct_actuation_command_mode
+            and self.competition_profile.direct_actuation_command_mode != self.ros_output.command_mode
+        ):
+            errors.append(
+                "competition_profile.direct_actuation_command_mode must match ros_output.command_mode"
+            )
+        if (
+            self.competition_profile.direct_actuation_topic
+            and self.competition_profile.direct_actuation_topic != self.ros_output.actuation_topic
+        ):
+            errors.append(
+                "competition_profile.direct_actuation_topic must match ros_output.actuation_topic"
+            )
+        if (
+            self.competition_profile.direct_actuation_message_type
+            and self.competition_profile.direct_actuation_message_type
+            != self.ros_output.actuation_message_type
+        ):
+            errors.append(
+                "competition_profile.direct_actuation_message_type must match "
+                "ros_output.actuation_message_type"
+            )
+        if (
+            self.competition_profile.direct_actuation_longitudinal_type == 1
+            and self.ros_output.command_mode != "pedal"
+        ):
+            errors.append(
+                "competition_profile.direct_actuation_longitudinal_type=1 requires "
+                "ros_output.command_mode=pedal"
+            )
         if self.legacy_serial_bridge.publish_enabled and not self.legacy_serial_bridge.enabled:
             errors.append("legacy_serial_bridge.publish_enabled=true requires legacy_serial_bridge.enabled=true")
         if self.legacy_serial_bridge.enabled:
@@ -707,6 +786,7 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
         live_input=LiveInputConfig(**raw.get("live_input", {})),
         ros_output=RosOutputConfig(**raw.get("ros_output", {})),
         legacy_serial_bridge=LegacySerialBridgeConfig(**raw.get("legacy_serial_bridge", {})),
+        competition_profile=CompetitionProfileConfig(**raw.get("competition_profile", {})),
         optional_ego_topics=OptionalEgoTopicsConfig(**raw.get("optional_ego_topics", {})),
         vehicle_status=VehicleStatusConfig(**raw.get("vehicle_status", {})),
         morai_udp_reference=MoraiUdpReferenceConfig(**raw.get("morai_udp_reference", {})),
@@ -731,3 +811,53 @@ def save_competition_config(path: str | Path, config: CompetitionConfig) -> None
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(config.to_dict(), indent=2), encoding="utf-8")
+
+
+def competition_profile_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
+    """Return structured competition metadata for debug snapshots."""
+
+    profile = config.competition_profile
+    return {
+        "competition_name": profile.competition_name,
+        "map_name": profile.map_name,
+        "vehicle_model": profile.vehicle_model,
+        "wheelbase_m": profile.wheelbase_m,
+        "ros_distro": profile.ros_distro,
+        "os_version": profile.os_version,
+        "desktop_only": profile.desktop_only,
+        "rosbridge_optional": profile.rosbridge_optional,
+        "sensor_limits": {
+            "gps": profile.max_gps,
+            "imu": profile.max_imu,
+            "camera": profile.max_camera,
+            "lidar": profile.max_lidar,
+        },
+        "camera_pitch_limit_deg": profile.camera_pitch_limit_deg,
+    }
+
+
+def runtime_policy_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
+    """Expose runtime policy decisions that operators should verify on site."""
+
+    profile = config.competition_profile
+    return {
+        "command_mode": config.ros_output.command_mode,
+        "pedal_mode": config.ros_output.command_mode == "pedal",
+        "direct_actuation_enabled": config.ros_output.publish_actuation,
+        "direct_actuation_topic": config.ros_output.actuation_topic,
+        "direct_actuation_message_type": config.ros_output.actuation_message_type,
+        "direct_actuation_longitudinal_type": 1 if config.ros_output.command_mode == "pedal" else 2,
+        "direct_actuation_uses_accel_brake": config.ros_output.command_mode == "pedal",
+        "legacy_bridge_enabled": config.legacy_serial_bridge.enabled,
+        "legacy_bridge_publish_enabled": config.legacy_serial_bridge.publish_enabled,
+        "vehicle_status_subscriber_enabled": config.vehicle_status.enabled,
+        "controls_gear_mode": profile.participant_controls_gear_mode,
+        "controls_external_mode": profile.participant_controls_external_mode,
+        "gear_mode_policy": (
+            "operator_managed"
+            if not profile.participant_controls_gear_mode and not profile.participant_controls_external_mode
+            else "team_managed"
+        ),
+        "initial_vehicle_state": profile.initial_vehicle_state,
+        "operator_transition_state": profile.operator_transition_state,
+    }

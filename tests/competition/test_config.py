@@ -19,14 +19,38 @@ class CompetitionConfigTest(unittest.TestCase):
     def test_kcity_2026_config_loads(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
         self.assertEqual(config.controller.pure_pursuit.wheelbase_m, 3.0)
+        self.assertEqual(config.controller.stanley.wheelbase_m, 3.0)
         self.assertEqual(config.gps.topic, "/fix")
         self.assertIn("camera_image", config.cameras[0].fallback_topics)
         self.assertTrue(config.legacy_serial_bridge.enabled)
         self.assertFalse(config.legacy_serial_bridge.publish_enabled)
         self.assertEqual(config.legacy_serial_bridge.brake_mode, "normalized")
+        self.assertEqual(config.ros_output.command_mode, "pedal")
         self.assertEqual(config.optional_ego_topics.heading_message_type, "std_msgs/Float64")
         self.assertIn("std_msgs/Float32", config.optional_ego_topics.heading_fallback_message_types)
         self.assertIn("geometry_msgs/PointStamped", config.optional_ego_topics.utm_fallback_message_types)
+        self.assertEqual(
+            config.competition_profile.competition_name,
+            "2025 대학생 창작모빌리티 경진대회 시뮬레이터 부문",
+        )
+        self.assertEqual(config.competition_profile.map_name, "R-KR_PG_K-City_2025")
+        self.assertEqual(config.competition_profile.vehicle_model, "2023_Hyundai_ioniq5")
+        self.assertEqual(config.competition_profile.wheelbase_m, 3.0)
+        self.assertEqual(config.competition_profile.ros_distro, "ROS1 Noetic")
+        self.assertEqual(config.competition_profile.os_version, "Ubuntu 20.04")
+        self.assertTrue(config.competition_profile.desktop_only)
+        self.assertTrue(config.competition_profile.rosbridge_optional)
+        self.assertEqual(config.competition_profile.max_gps, 1)
+        self.assertEqual(config.competition_profile.max_imu, 1)
+        self.assertEqual(config.competition_profile.max_camera, 2)
+        self.assertEqual(config.competition_profile.max_lidar, 2)
+        self.assertEqual(config.competition_profile.camera_pitch_limit_deg, 30.0)
+        self.assertEqual(config.competition_profile.direct_actuation_topic, "/ctrl_cmd")
+        self.assertEqual(config.competition_profile.direct_actuation_message_type, "morai_msgs/CtrlCmd")
+        self.assertEqual(config.competition_profile.direct_actuation_longitudinal_type, 1)
+        self.assertEqual(config.competition_profile.direct_actuation_command_mode, "pedal")
+        self.assertFalse(config.competition_profile.participant_controls_gear_mode)
+        self.assertFalse(config.competition_profile.participant_controls_external_mode)
 
     def test_invalid_duplicate_camera_names_fail(self) -> None:
         payload = CompetitionConfig().to_dict()
@@ -94,8 +118,12 @@ class CompetitionConfigTest(unittest.TestCase):
 
     def test_debug_only_disables_legacy_serial_bridge_publish(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.ros_output.publish_actuation = True
+        config.ros_output.actuation_armed = True
         config.legacy_serial_bridge.publish_enabled = True
         updated = apply_runtime_mode_overrides(config, debug_only=True)
+        self.assertFalse(updated.ros_output.publish_actuation)
+        self.assertFalse(updated.ros_output.actuation_armed)
         self.assertFalse(updated.legacy_serial_bridge.publish_enabled)
 
     def test_debug_only_conflicts_with_legacy_serial_enable_flag(self) -> None:
@@ -144,6 +172,17 @@ class CompetitionConfigTest(unittest.TestCase):
         ]
         payload["legacy_serial_bridge"]["enabled"] = True
         payload["legacy_serial_bridge"]["brake_mode"] = "bad_mode"
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            with self.assertRaises(ValueError):
+                load_competition_config(handle.name)
+
+    def test_competition_profile_longi_type_1_requires_pedal_mode(self) -> None:
+        payload = load_competition_config("configs/competition_morai_kcity_2026.json").to_dict()
+        payload["ros_output"]["command_mode"] = "velocity"
+        payload["ros_output"]["publish_actuation"] = True
+        payload["ros_output"]["actuation_armed"] = True
         with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
             json.dump(payload, handle)
             handle.flush()

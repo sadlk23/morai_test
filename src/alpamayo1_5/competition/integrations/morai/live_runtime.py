@@ -20,7 +20,11 @@ from alpamayo1_5.competition.integrations.morai.publishers import (
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import MoraiIntegrationUnavailable, import_rospy
 from alpamayo1_5.competition.integrations.morai.subscribers import LiveSensorSnapshot, MoraiRosSubscriberManager
 from alpamayo1_5.competition.io.udp_interface import UdpCommandPublisher
-from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig
+from alpamayo1_5.competition.runtime.config_competition import (
+    CompetitionConfig,
+    competition_profile_diagnostics,
+    runtime_policy_diagnostics,
+)
 from alpamayo1_5.competition.runtime.pipeline import CompetitionRuntimePipeline
 
 logger = logging.getLogger(__name__)
@@ -262,6 +266,8 @@ class MoraiLiveRuntime:
             "optional_ego": self._optional_ego_summary(live_snapshot),
             "vehicle_status": self._vehicle_status_summary(live_snapshot),
             "legacy_serial_bridge": legacy_serial_bridge_diagnostics(self.config.legacy_serial_bridge),
+            "competition_profile": competition_profile_diagnostics(self.config),
+            "runtime_policy": runtime_policy_diagnostics(self.config),
         }
 
     def _optional_ego_summary(self, live_snapshot: LiveSensorSnapshot) -> dict[str, object]:
@@ -330,6 +336,8 @@ class MoraiLiveRuntime:
         decision.diagnostics["vehicle_status"] = health_summary.get("vehicle_status", {})
         decision.diagnostics["command_status"] = self._command_status_summary(decision, live_snapshot)
         decision.diagnostics["legacy_serial_bridge"] = health_summary.get("legacy_serial_bridge", {})
+        decision.diagnostics["competition_profile"] = health_summary.get("competition_profile", {})
+        decision.diagnostics["runtime_policy"] = health_summary.get("runtime_policy", {})
         snapshot.diagnostics["live_system_state"] = str(health_summary["system_state"])
         snapshot.diagnostics["blocking_reasons"] = list(health.blocking_reasons)
         snapshot.diagnostics["receive_counts"] = live_snapshot.diagnostics.get("receive_counts", {})
@@ -342,6 +350,8 @@ class MoraiLiveRuntime:
         snapshot.diagnostics["vehicle_status"] = health_summary.get("vehicle_status", {})
         snapshot.diagnostics["command_status"] = self._command_status_summary(decision, live_snapshot)
         snapshot.diagnostics["legacy_serial_bridge"] = health_summary.get("legacy_serial_bridge", {})
+        snapshot.diagnostics["competition_profile"] = health_summary.get("competition_profile", {})
+        snapshot.diagnostics["runtime_policy"] = health_summary.get("runtime_policy", {})
         return decision, snapshot
 
     def _publish_waiting_stop(
@@ -385,6 +395,8 @@ class MoraiLiveRuntime:
                 "optional_ego": health_summary.get("optional_ego", {}),
                 "vehicle_status": health_summary.get("vehicle_status", {}),
                 "legacy_serial_bridge": health_summary.get("legacy_serial_bridge", {}),
+                "competition_profile": health_summary.get("competition_profile", {}),
+                "runtime_policy": health_summary.get("runtime_policy", {}),
             },
         )
         snapshot = DebugSnapshot(
@@ -401,6 +413,8 @@ class MoraiLiveRuntime:
                 "optional_ego": health_summary.get("optional_ego", {}),
                 "vehicle_status": health_summary.get("vehicle_status", {}),
                 "legacy_serial_bridge": health_summary.get("legacy_serial_bridge", {}),
+                "competition_profile": health_summary.get("competition_profile", {}),
+                "runtime_policy": health_summary.get("runtime_policy", {}),
             },
             safety_flags=["live_waiting_for_required_inputs"] + list(health.blocking_reasons),
         )

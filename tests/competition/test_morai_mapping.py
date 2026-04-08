@@ -133,6 +133,18 @@ class _CtrlCmdMissingPedal:
         self.steering = 0.0
 
 
+class _CtrlCmdWithGearMode:
+    def __init__(self) -> None:
+        self.longlCmdType = 0
+        self.steering = 0.0
+        self.accel = 0.0
+        self.brake = 0.0
+        self.velocity = 0.0
+        self.gear = 7
+        self.mode = "Keyboard"
+        self.ctrlMode = "Keyboard"
+
+
 class MoraiMappingTest(unittest.TestCase):
     def test_map_camera_message(self) -> None:
         frame = map_camera_message(_ImageMessage(), "front", frame_id=7, message_type="sensor_msgs/Image")
@@ -226,6 +238,23 @@ class MoraiMappingTest(unittest.TestCase):
         self.assertIn("brake", contract["missing_fields"])
         with self.assertRaises(ValueError):
             validate_control_message_contract(_CtrlCmdMissingPedal(), command_mode="pedal")
+
+    def test_direct_mapping_does_not_override_gear_or_mode_fields(self) -> None:
+        message = populate_control_message(
+            _CtrlCmdWithGearMode(),
+            ControlCommand(
+                frame_id=2,
+                timestamp_s=1.0,
+                steering=0.15,
+                throttle=0.25,
+                brake=0.05,
+                target_speed_mps=3.0,
+            ),
+            command_mode="pedal",
+        )
+        self.assertEqual(message.gear, 7)
+        self.assertEqual(message.mode, "Keyboard")
+        self.assertEqual(message.ctrlMode, "Keyboard")
 
 
 if __name__ == "__main__":
