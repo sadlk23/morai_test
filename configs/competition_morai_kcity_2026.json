@@ -75,6 +75,20 @@
     "required": false,
     "max_staleness_s": 0.5
   },
+  "competition_status": {
+    "enabled": false,
+    "topic": "",
+    "message_type": "",
+    "required": false,
+    "max_staleness_s": 0.5
+  },
+  "collision_data": {
+    "enabled": false,
+    "topic": "",
+    "message_type": "",
+    "required": false,
+    "max_staleness_s": 0.5
+  },
   "route_command": {
     "topic": "/route_command",
     "message_type": "std_msgs/String",
@@ -167,6 +181,7 @@
   "morai_udp_reference": {
     "user_ip": "127.0.0.1",
     "host_ip": "127.0.0.1",
+    "multi_ip": "",
     "camera_host_port": 1231,
     "camera_user_port": 1232,
     "lidar_host_port": 2369,

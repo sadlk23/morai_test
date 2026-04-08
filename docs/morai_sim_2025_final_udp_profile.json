@@ -1,0 +1,18 @@
+{
+  "_source": "sadlk23/sim historical competition workspace reference",
+  "_note": "Last-year competition reference only. Do not use blindly as an active runtime config.",
+  "_usage": "Confirm venue network, message contracts, and operator setup on site before applying any of these values.",
+  "user_ip": "192.168.0.22",
+  "host_ip": "192.168.0.2",
+  "multi_ip": "192.168.0.100",
+  "ctrl_cmd_host_port": 3300,
+  "ctrl_cmd_user_port": 3301,
+  "vehicle_status_host_port": 1233,
+  "vehicle_status_user_port": 1234,
+  "competition_status_host_port": 3314,
+  "competition_status_user_port": 3315,
+  "collision_data_host_port": 5677,
+  "collision_data_user_port": 5678,
+  "imu_host_port": 1235,
+  "imu_user_port": 1236
+}

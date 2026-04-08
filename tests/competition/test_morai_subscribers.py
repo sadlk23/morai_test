@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 
 from alpamayo1_5.competition.integrations.morai.subscribers import (
+    _extract_collision_data,
+    _extract_competition_status,
     _extract_optional_heading_rad,
     _optional_ego_diagnostics,
     _extract_optional_utm,
@@ -59,6 +61,18 @@ class _VehicleStatusMsg:
         self.steering = 0.12
 
 
+class _CompetitionStatusMsg:
+    def __init__(self) -> None:
+        self.status = "running"
+        self.code = 2
+
+
+class _CollisionDataMsg:
+    def __init__(self) -> None:
+        self.collision_count = 1
+        self.has_collision = True
+
+
 class MoraiSubscribersTest(unittest.TestCase):
     def test_extract_optional_heading_supports_float32(self) -> None:
         heading = _extract_optional_heading_rad(_Float32Heading())
@@ -107,6 +121,16 @@ class MoraiSubscribersTest(unittest.TestCase):
         status = _extract_vehicle_status(_VehicleStatusMsg())
         self.assertEqual(status["speed_mps"], 3.2)
         self.assertEqual(status["gear"], 1.0)
+
+    def test_extract_competition_status_supports_named_fields(self) -> None:
+        status = _extract_competition_status(_CompetitionStatusMsg())
+        self.assertEqual(status["state"], "running")
+        self.assertEqual(status["code"], 2)
+
+    def test_extract_collision_data_supports_named_fields(self) -> None:
+        collision = _extract_collision_data(_CollisionDataMsg())
+        self.assertEqual(collision["collision_count"], 1)
+        self.assertTrue(collision["collided"])
 
 
 if __name__ == "__main__":

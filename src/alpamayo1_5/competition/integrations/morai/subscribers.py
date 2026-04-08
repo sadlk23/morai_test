@@ -147,6 +147,79 @@ def _vehicle_status_diagnostics(
     return diagnostics
 
 
+def _coerce_diagnostics_scalar(value: Any) -> Any:
+    if isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        preview: list[Any] = []
+        for item in value[:5]:
+            if isinstance(item, (bool, int, float, str)):
+                preview.append(item)
+            else:
+                preview.append(type(item).__name__)
+        return preview
+    return None
+
+
+def _extract_competition_status(message: Any) -> dict[str, Any]:
+    status: dict[str, Any] = {"source_type": infer_message_type_name(message)}
+    for target_name, candidates in {
+        "state": ("state", "status", "phase"),
+        "code": ("code", "status_code"),
+        "is_running": ("is_running", "running"),
+        "data": ("data",),
+    }.items():
+        for candidate in candidates:
+            raw_value = get_nested_attr(message, candidate, None)
+            value = _coerce_diagnostics_scalar(raw_value)
+            if value is not None:
+                status[target_name] = value
+                break
+    if len(status) == 1:
+        raise ValueError("could not parse competition status fields from message")
+    return status
+
+
+def _extract_collision_data(message: Any) -> dict[str, Any]:
+    collision_data: dict[str, Any] = {"source_type": infer_message_type_name(message)}
+    for target_name, candidates in {
+        "collision_count": ("collision_count", "count", "num_collisions"),
+        "collided": ("collided", "has_collision", "is_collision"),
+        "object_count": ("object_count", "num_objects"),
+        "data": ("data",),
+    }.items():
+        for candidate in candidates:
+            raw_value = get_nested_attr(message, candidate, None)
+            value = _coerce_diagnostics_scalar(raw_value)
+            if value is not None:
+                collision_data[target_name] = value
+                break
+    objects = get_nested_attr(message, "collision_object", None)
+    if objects is None:
+        objects = get_nested_attr(message, "collision_objects", None)
+    object_preview = _coerce_diagnostics_scalar(objects)
+    if object_preview is not None:
+        collision_data["objects"] = object_preview
+    if len(collision_data) == 1:
+        raise ValueError("could not parse collision data fields from message")
+    return collision_data
+
+
+def _optional_diagnostics_input(
+    payload: dict[str, Any] | None,
+    timestamp_s: float | None,
+    last_error: str | None,
+) -> dict[str, Any]:
+    diagnostics: dict[str, Any] = {"available": payload is not None}
+    if payload is not None:
+        diagnostics.update(dict(payload))
+    if timestamp_s is not None:
+        diagnostics["timestamp_s"] = timestamp_s
+    if last_error is not None:
+        diagnostics["last_error"] = last_error
+    return diagnostics
+
+
 @dataclass(slots=True)
 class LiveSensorSnapshot:
     """Thread-safe snapshot of the latest converted live sensor values."""
@@ -162,6 +235,10 @@ class LiveSensorSnapshot:
     local_utm_timestamp_s: float | None = None
     vehicle_status: dict[str, Any] | None = None
     vehicle_status_timestamp_s: float | None = None
+    competition_status: dict[str, Any] | None = None
+    competition_status_timestamp_s: float | None = None
+    collision_data: dict[str, Any] | None = None
+    collision_data_timestamp_s: float | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -186,6 +263,12 @@ class LiveSensorState:
         self._vehicle_status: dict[str, Any] | None = None
         self._vehicle_status_timestamp_s: float | None = None
         self._last_vehicle_status_error: str | None = None
+        self._competition_status: dict[str, Any] | None = None
+        self._competition_status_timestamp_s: float | None = None
+        self._last_competition_status_error: str | None = None
+        self._collision_data: dict[str, Any] | None = None
+        self._collision_data_timestamp_s: float | None = None
+        self._last_collision_data_error: str | None = None
         self._receive_counts: dict[str, int] = {}
         self._last_errors: dict[str, str] = {}
         self._last_error_timestamps_s: dict[str, float] = {}
@@ -251,6 +334,24 @@ class LiveSensorState:
             self._last_errors.pop("vehicle_status", None)
             self._last_error_timestamps_s.pop("vehicle_status", None)
 
+    def update_competition_status(self, competition_status: dict[str, Any], timestamp_s: float) -> None:
+        with self._lock:
+            self._competition_status = dict(competition_status)
+            self._competition_status_timestamp_s = timestamp_s
+            self._last_competition_status_error = None
+            self._receive_counts["competition_status"] = self._receive_counts.get("competition_status", 0) + 1
+            self._last_errors.pop("competition_status", None)
+            self._last_error_timestamps_s.pop("competition_status", None)
+
+    def update_collision_data(self, collision_data: dict[str, Any], timestamp_s: float) -> None:
+        with self._lock:
+            self._collision_data = dict(collision_data)
+            self._collision_data_timestamp_s = timestamp_s
+            self._last_collision_data_error = None
+            self._receive_counts["collision_data"] = self._receive_counts.get("collision_data", 0) + 1
+            self._last_errors.pop("collision_data", None)
+            self._last_error_timestamps_s.pop("collision_data", None)
+
     def record_local_utm_error(self, message: str) -> None:
         with self._lock:
             self._last_utm_error = message
@@ -262,6 +363,14 @@ class LiveSensorState:
     def record_vehicle_status_error(self, message: str) -> None:
         with self._lock:
             self._last_vehicle_status_error = message
+
+    def record_competition_status_error(self, message: str) -> None:
+        with self._lock:
+            self._last_competition_status_error = message
+
+    def record_collision_data_error(self, message: str) -> None:
+        with self._lock:
+            self._last_collision_data_error = message
 
     def record_error(self, source: str, message: str, timestamp_s: float) -> None:
         """Store the latest callback error for diagnostics without crashing callbacks."""
@@ -287,6 +396,16 @@ class LiveSensorState:
                 self._vehicle_status_timestamp_s,
                 self._last_vehicle_status_error,
             )
+            competition_status = _optional_diagnostics_input(
+                self._competition_status,
+                self._competition_status_timestamp_s,
+                self._last_competition_status_error,
+            )
+            collision_data = _optional_diagnostics_input(
+                self._collision_data,
+                self._collision_data_timestamp_s,
+                self._last_collision_data_error,
+            )
             return LiveSensorSnapshot(
                 camera_frames=dict(self._camera_frames),
                 gps_fix=self._gps_fix,
@@ -299,12 +418,20 @@ class LiveSensorState:
                 local_utm_timestamp_s=self._local_utm_timestamp_s,
                 vehicle_status=dict(self._vehicle_status) if self._vehicle_status is not None else None,
                 vehicle_status_timestamp_s=self._vehicle_status_timestamp_s,
+                competition_status=(
+                    dict(self._competition_status) if self._competition_status is not None else None
+                ),
+                competition_status_timestamp_s=self._competition_status_timestamp_s,
+                collision_data=dict(self._collision_data) if self._collision_data is not None else None,
+                collision_data_timestamp_s=self._collision_data_timestamp_s,
                 diagnostics={
                     "receive_counts": dict(self._receive_counts),
                     "last_errors": dict(self._last_errors),
                     "last_error_timestamps_s": dict(self._last_error_timestamps_s),
                     "optional_ego": optional_ego,
                     "vehicle_status": vehicle_status,
+                    "competition_status": competition_status,
+                    "collision_data": collision_data,
                 },
             )
 
@@ -465,6 +592,44 @@ class MoraiRosSubscriberManager:
 
         return callback
 
+    def _competition_status_callback(self) -> Callable[[Any], None]:
+        def callback(message: Any) -> None:
+            try:
+                competition_status = _extract_competition_status(message)
+                timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
+                self.state.update_competition_status(competition_status, timestamp_s)
+            except Exception as exc:
+                error = "%s: %s" % (type(exc).__name__, exc)
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error(
+                    "competition_status",
+                    "Failed to decode optional competition status: %s" % error,
+                    timestamp_s,
+                )
+                self.state.record_competition_status_error(error)
+                self.state.record_error("competition_status", error, timestamp_s)
+
+        return callback
+
+    def _collision_data_callback(self) -> Callable[[Any], None]:
+        def callback(message: Any) -> None:
+            try:
+                collision_data = _extract_collision_data(message)
+                timestamp_s = _message_timestamp_s(message, float(self._rospy.get_time()))
+                self.state.update_collision_data(collision_data, timestamp_s)
+            except Exception as exc:
+                error = "%s: %s" % (type(exc).__name__, exc)
+                timestamp_s = self._rospy.get_time()
+                self._warn_callback_error(
+                    "collision_data",
+                    "Failed to decode optional collision data: %s" % error,
+                    timestamp_s,
+                )
+                self.state.record_collision_data_error(error)
+                self.state.record_error("collision_data", error, timestamp_s)
+
+        return callback
+
     def _register_subscribers(self) -> None:
         specs = build_subscription_specs(self.config)
         for spec in specs:
@@ -494,6 +659,10 @@ class MoraiRosSubscriberManager:
                 callback = self._optional_utm_callback()
             elif spec.sensor_kind == "vehicle_status":
                 callback = self._vehicle_status_callback()
+            elif spec.sensor_kind == "competition_status":
+                callback = self._competition_status_callback()
+            elif spec.sensor_kind == "collision_data":
+                callback = self._collision_data_callback()
             else:
                 continue
 

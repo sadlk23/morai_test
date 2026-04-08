@@ -77,6 +77,12 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertFalse(decision.diagnostics["runtime_policy"]["controls_gear_mode"])
         self.assertFalse(decision.diagnostics["runtime_policy"]["controls_external_mode"])
         self.assertIn("competition_profile", snapshot.diagnostics)
+        self.assertIn("morai_udp_reference", snapshot.diagnostics)
+        self.assertIn("multi_ip", snapshot.diagnostics["morai_udp_reference"])
+        self.assertIn("competition_status", decision.diagnostics)
+        self.assertFalse(decision.diagnostics["competition_status"]["available"])
+        self.assertIn("collision_data", snapshot.diagnostics)
+        self.assertFalse(snapshot.diagnostics["collision_data"]["available"])
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -171,6 +177,8 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertFalse(decision.diagnostics["optional_ego"]["utm_available"])
         self.assertIn("optional_ego", snapshot.diagnostics)
         self.assertEqual(decision.diagnostics["runtime_policy"]["gear_mode_policy"], "operator_managed")
+        self.assertFalse(decision.diagnostics["competition_status"]["available"])
+        self.assertFalse(decision.diagnostics["collision_data"]["available"])
 
     def test_vehicle_status_is_reflected_in_diagnostics_when_present(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
@@ -217,6 +225,72 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("speed_delta_mps", decision.diagnostics["command_status"])
         self.assertIn("vehicle_status", snapshot.diagnostics)
         self.assertTrue(decision.diagnostics["runtime_policy"]["vehicle_status_subscriber_enabled"])
+
+    def test_competition_and_collision_diagnostics_are_reflected_when_present(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.competition_status.enabled = True
+        config.competition_status.topic = "/competition/status"
+        config.competition_status.message_type = "std_msgs/String"
+        config.collision_data.enabled = True
+        config.collision_data.topic = "/collision/data"
+        config.collision_data.message_type = "std_msgs/Bool"
+        pipeline = CompetitionRuntimePipeline(config, publishers=[])
+        assembler = LivePacketAssembler(config, time_fn=lambda: 8.0)
+        subscribers = _FakeSubscribers(
+            LiveSensorSnapshot(
+                camera_frames={
+                    "front": CameraFrame(
+                        camera_id="front",
+                        timestamp_s=8.0,
+                        frame_id=3,
+                        image=[[[0, 0, 0] for _ in range(4)] for _ in range(4)],
+                        shape=(4, 4, 3),
+                        encoding="rgb8",
+                    )
+                },
+                gps_fix=GpsFix(timestamp_s=8.0, latitude_deg=37.0, longitude_deg=127.0, speed_mps=2.0),
+                imu_sample=ImuSample(timestamp_s=8.0, yaw_rad=0.0, yaw_rate_rps=0.0),
+                route_command="keep lane",
+                competition_status={"available": True, "source_type": "std_msgs/String", "state": "running"},
+                competition_status_timestamp_s=7.75,
+                collision_data={"available": True, "source_type": "std_msgs/Bool", "collided": False},
+                collision_data_timestamp_s=7.6,
+                diagnostics={
+                    "receive_counts": {"competition_status": 1, "collision_data": 1},
+                    "last_errors": {},
+                    "last_error_timestamps_s": {},
+                    "optional_ego": {},
+                    "vehicle_status": {"available": False},
+                    "competition_status": {
+                        "available": True,
+                        "source_type": "std_msgs/String",
+                        "state": "running",
+                    },
+                    "collision_data": {
+                        "available": True,
+                        "source_type": "std_msgs/Bool",
+                        "collided": False,
+                    },
+                },
+            )
+        )
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        output = runtime.run_cycle_once()
+        self.assertIsNotNone(output)
+        assert output is not None
+        decision, snapshot = output
+        self.assertTrue(decision.diagnostics["competition_status"]["available"])
+        self.assertEqual(decision.diagnostics["competition_status"]["state"], "running")
+        self.assertIn("age_s", decision.diagnostics["competition_status"])
+        self.assertTrue(snapshot.diagnostics["collision_data"]["available"])
+        self.assertIn("age_s", snapshot.diagnostics["collision_data"])
+        self.assertTrue(decision.diagnostics["runtime_policy"]["competition_status_subscriber_enabled"])
+        self.assertTrue(decision.diagnostics["runtime_policy"]["collision_data_subscriber_enabled"])
 
 
 if __name__ == "__main__":

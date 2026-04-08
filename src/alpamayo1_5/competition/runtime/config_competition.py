@@ -250,11 +250,23 @@ class VehicleStatusConfig:
 
 
 @dataclass(slots=True)
+class DiagnosticsInputConfig:
+    """Optional diagnostics-only ROS input."""
+
+    enabled: bool = False
+    topic: str = ""
+    message_type: str = ""
+    required: bool = False
+    max_staleness_s: float = 0.5
+
+
+@dataclass(slots=True)
 class MoraiUdpReferenceConfig:
     """MORAI UDP reference ports from moo for documentation/future bridge wiring."""
 
     user_ip: str = "127.0.0.1"
     host_ip: str = "127.0.0.1"
+    multi_ip: str = ""
     camera_host_port: int = 1231
     camera_user_port: int = 1232
     lidar_host_port: int = 2369
@@ -346,6 +358,8 @@ class CompetitionConfig:
     competition_profile: CompetitionProfileConfig = field(default_factory=CompetitionProfileConfig)
     optional_ego_topics: OptionalEgoTopicsConfig = field(default_factory=OptionalEgoTopicsConfig)
     vehicle_status: VehicleStatusConfig = field(default_factory=VehicleStatusConfig)
+    competition_status: DiagnosticsInputConfig = field(default_factory=DiagnosticsInputConfig)
+    collision_data: DiagnosticsInputConfig = field(default_factory=DiagnosticsInputConfig)
     morai_udp_reference: MoraiUdpReferenceConfig = field(default_factory=MoraiUdpReferenceConfig)
     udp_output: UdpOutputConfig = field(default_factory=UdpOutputConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -519,6 +533,21 @@ class CompetitionConfig:
                 errors.append("vehicle_status.message_type must use package/MessageName syntax")
             if self.vehicle_status.max_staleness_s <= 0:
                 errors.append("vehicle_status.max_staleness_s must be > 0 when enabled=true")
+        for field_name in ("competition_status", "collision_data"):
+            diagnostics_input = getattr(self, field_name)
+            if diagnostics_input.enabled:
+                if not diagnostics_input.topic:
+                    errors.append(f"{field_name}.topic must not be empty when enabled=true")
+                elif diagnostics_input.topic in seen_topics:
+                    errors.append(f"{field_name}.topic duplicates another topic: {diagnostics_input.topic}")
+                else:
+                    seen_topics.add(diagnostics_input.topic)
+                if not diagnostics_input.message_type:
+                    errors.append(f"{field_name}.message_type must not be empty when enabled=true")
+                elif "/" not in diagnostics_input.message_type:
+                    errors.append(f"{field_name}.message_type must use package/MessageName syntax")
+                if diagnostics_input.max_staleness_s <= 0:
+                    errors.append(f"{field_name}.max_staleness_s must be > 0 when enabled=true")
 
         if self.output_mode not in {"ros", "udp", "dual"}:
             errors.append("output_mode must be one of: ros, udp, dual")
@@ -789,6 +818,8 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
         competition_profile=CompetitionProfileConfig(**raw.get("competition_profile", {})),
         optional_ego_topics=OptionalEgoTopicsConfig(**raw.get("optional_ego_topics", {})),
         vehicle_status=VehicleStatusConfig(**raw.get("vehicle_status", {})),
+        competition_status=DiagnosticsInputConfig(**raw.get("competition_status", {})),
+        collision_data=DiagnosticsInputConfig(**raw.get("collision_data", {})),
         morai_udp_reference=MoraiUdpReferenceConfig(**raw.get("morai_udp_reference", {})),
         udp_output=UdpOutputConfig(**raw.get("udp_output", {})),
         logging=LoggingConfig(**raw.get("logging", {})),
@@ -851,6 +882,8 @@ def runtime_policy_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
         "legacy_bridge_enabled": config.legacy_serial_bridge.enabled,
         "legacy_bridge_publish_enabled": config.legacy_serial_bridge.publish_enabled,
         "vehicle_status_subscriber_enabled": config.vehicle_status.enabled,
+        "competition_status_subscriber_enabled": config.competition_status.enabled,
+        "collision_data_subscriber_enabled": config.collision_data.enabled,
         "controls_gear_mode": profile.participant_controls_gear_mode,
         "controls_external_mode": profile.participant_controls_external_mode,
         "gear_mode_policy": (
@@ -860,4 +893,21 @@ def runtime_policy_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
         ),
         "initial_vehicle_state": profile.initial_vehicle_state,
         "operator_transition_state": profile.operator_transition_state,
+    }
+
+
+def morai_udp_reference_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
+    """Expose non-binding MORAI UDP reference values for operator diagnostics."""
+
+    reference = config.morai_udp_reference
+    return {
+        "user_ip": reference.user_ip,
+        "host_ip": reference.host_ip,
+        "multi_ip": reference.multi_ip,
+        "ctrl_cmd_host_port": reference.ctrl_cmd_host_port,
+        "ctrl_cmd_user_port": reference.ctrl_cmd_user_port,
+        "vehicle_status_host_port": reference.vehicle_status_host_port,
+        "vehicle_status_user_port": reference.vehicle_status_user_port,
+        "imu_host_port": reference.imu_host_port,
+        "imu_user_port": reference.imu_user_port,
     }

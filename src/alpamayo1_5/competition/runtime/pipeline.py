@@ -21,6 +21,7 @@ from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import lega
 from alpamayo1_5.competition.runtime.config_competition import (
     CompetitionConfig,
     competition_profile_diagnostics,
+    morai_udp_reference_diagnostics,
     runtime_policy_diagnostics,
 )
 from alpamayo1_5.competition.runtime.debug_dump import DebugDumper
@@ -149,10 +150,12 @@ class CompetitionRuntimePipeline:
                     "decision_intervention": decision.intervention,
                     "competition_profile": competition_profile_diagnostics(self.config),
                     "runtime_policy": runtime_policy_diagnostics(self.config),
+                    "morai_udp_reference": morai_udp_reference_diagnostics(self.config),
                 },
             )
             decision.diagnostics["competition_profile"] = competition_profile_diagnostics(self.config)
             decision.diagnostics["runtime_policy"] = runtime_policy_diagnostics(self.config)
+            decision.diagnostics["morai_udp_reference"] = morai_udp_reference_diagnostics(self.config)
             if self.config.legacy_serial_bridge.enabled:
                 snapshot.diagnostics["legacy_serial_bridge"] = legacy_serial_bridge_diagnostics(
                     self.config.legacy_serial_bridge
@@ -198,6 +201,7 @@ class CompetitionRuntimePipeline:
                     "publisher_warnings": list(self.publisher_warnings),
                     "competition_profile": competition_profile_diagnostics(self.config),
                     "runtime_policy": runtime_policy_diagnostics(self.config),
+                    "morai_udp_reference": morai_udp_reference_diagnostics(self.config),
                 },
             )
 

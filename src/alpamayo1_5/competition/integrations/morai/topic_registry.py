@@ -120,6 +120,28 @@ def build_subscription_specs(config: CompetitionConfig) -> list[SubscriptionSpec
                 max_staleness_s=config.vehicle_status.max_staleness_s,
             )
         )
+    if config.competition_status.enabled and config.competition_status.topic:
+        specs.append(
+            SubscriptionSpec(
+                name="competition_status",
+                topic=config.competition_status.topic,
+                message_type=config.competition_status.message_type,
+                sensor_kind="competition_status",
+                required=False,
+                max_staleness_s=config.competition_status.max_staleness_s,
+            )
+        )
+    if config.collision_data.enabled and config.collision_data.topic:
+        specs.append(
+            SubscriptionSpec(
+                name="collision_data",
+                topic=config.collision_data.topic,
+                message_type=config.collision_data.message_type,
+                sensor_kind="collision_data",
+                required=False,
+                max_staleness_s=config.collision_data.max_staleness_s,
+            )
+        )
 
     if config.use_lidar and config.lidar.topic:
         specs.append(

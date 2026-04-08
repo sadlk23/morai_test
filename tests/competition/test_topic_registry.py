@@ -12,6 +12,12 @@ class TopicRegistryTest(unittest.TestCase):
     def test_kcity_2026_builds_primary_and_fallback_specs(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
         config.vehicle_status.enabled = True
+        config.competition_status.enabled = True
+        config.competition_status.topic = "/competition/status"
+        config.competition_status.message_type = "std_msgs/String"
+        config.collision_data.enabled = True
+        config.collision_data.topic = "/collision/data"
+        config.collision_data.message_type = "std_msgs/Bool"
         specs = build_subscription_specs(config)
         topics = {spec.topic for spec in specs}
         sensor_kinds = {spec.sensor_kind for spec in specs}
@@ -23,12 +29,16 @@ class TopicRegistryTest(unittest.TestCase):
         self.assertIn("/Local/heading", topics)
         self.assertIn("/Local/utm", topics)
         self.assertIn("/ERP/serial_data", topics)
+        self.assertIn("/competition/status", topics)
+        self.assertIn("/collision/data", topics)
         self.assertIn("camera", sensor_kinds)
         self.assertIn("gps", sensor_kinds)
         self.assertIn("imu", sensor_kinds)
         self.assertIn("optional_heading", sensor_kinds)
         self.assertIn("optional_utm", sensor_kinds)
         self.assertIn("vehicle_status", sensor_kinds)
+        self.assertIn("competition_status", sensor_kinds)
+        self.assertIn("collision_data", sensor_kinds)
         heading_specs = [
             spec for spec in specs if spec.sensor_kind == "optional_heading" and spec.topic == "/Local/heading"
         ]

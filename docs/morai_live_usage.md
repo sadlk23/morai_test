@@ -8,6 +8,8 @@ This repository keeps the existing MORAI competition runtime skeleton and now su
 2. Legacy moo-compatible serial bridge (`/Control/serial_data`, `std_msgs/Float32MultiArray`)
 
 Both can be enabled together, and debug-first behavior is preserved.
+Historical venue notes from `sadlk23/sim` are documented in `docs/morai_sim_workspace_reference.md` and remain reference-only.
+The matching LAN artifact lives at `docs/morai_sim_2025_final_udp_profile.json`.
 
 Target competition assumptions for the single K-City bring-up path:
 
@@ -72,9 +74,12 @@ Optional helper topics (debug only, non-blocking):
 - `/Local/heading` with `std_msgs/Float64` primary and `std_msgs/Float32` fallback
 - `/Local/utm`
 - optional `vehicle_status` diagnostics topic when configured
+- optional `competition_status` diagnostics topic when configured
+- optional `collision_data` diagnostics topic when configured
 
 If optional helper topics are absent, runtime does not fail.
 Competition Vehicle Status and Ego Vehicle Status can differ by venue program, so the on-site topic and message type must still be checked before relying on diagnostics.
+The historical `sim` LAN profile is useful for venue preparation, but it is not the active default in `morai_test`.
 
 ## Output Paths
 
@@ -86,6 +91,7 @@ Direct MORAI output:
 - longitudinal fields: `accel` and `brake`
 - lateral field: `steering` or `front_steer`
 - participant code does not own simulator gear or ExternalCtrl transitions
+- this remains the active default even if the venue exposes extra LAN or judging signals
 
 Legacy moo bridge output:
 
@@ -107,6 +113,7 @@ Brake conversion rule in legacy bridge:
 - Actuation is allowed only when explicitly armed
 - `--debug-only` disables direct actuation and legacy serial bridge publishing
 - runtime policy diagnostics expose pedal mode, direct actuation enablement, legacy bridge state, vehicle-status subscriber state, and operator-managed gear/mode ownership
+- optional diagnostics also expose `competition_status`, `collision_data`, and `morai_udp_reference.multi_ip` when configured
 
 ## Gear And External Control Policy
 
@@ -160,7 +167,9 @@ rostopic hz /imu
 - Python handoff mismatch: wrapper starts under Python 3.8 but `runtime_python` is missing
 - topic mismatch: simulator publishes `camera_image` or `/gps` while config points elsewhere
 - message package mismatch: topic type differs from config `message_type`, or the ROS workspace has the wrong `morai_msgs`
+- historical `sim` workspaces bundled `morai_msgs`, so `rosmsg show morai_msgs/CtrlCmd` is worth checking before any actuation run
 - `CtrlCmd` contract mismatch: direct actuation now fails fast if required fields are missing
 - `vehicle_status` topic/type can differ by venue setup and must be checked on site even though it is diagnostics-only
+- `competition_status` and `collision_data` are diagnostics-only optional extensions and should not be assumed present until the venue confirms them
 - stale sensor warnings: timestamp/Hz mismatch causes waiting or degraded states
 - actuation arming: publish flags set without `arm_actuation` or debug-only still enabled

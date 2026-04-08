@@ -51,6 +51,11 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertEqual(config.competition_profile.direct_actuation_command_mode, "pedal")
         self.assertFalse(config.competition_profile.participant_controls_gear_mode)
         self.assertFalse(config.competition_profile.participant_controls_external_mode)
+        self.assertEqual(config.morai_udp_reference.multi_ip, "")
+        self.assertFalse(config.competition_status.enabled)
+        self.assertFalse(config.collision_data.enabled)
+        self.assertEqual(config.competition_status.message_type, "")
+        self.assertEqual(config.collision_data.message_type, "")
 
     def test_invalid_duplicate_camera_names_fail(self) -> None:
         payload = CompetitionConfig().to_dict()
@@ -188,6 +193,15 @@ class CompetitionConfigTest(unittest.TestCase):
             handle.flush()
             with self.assertRaises(ValueError):
                 load_competition_config(handle.name)
+
+    def test_multi_ip_optional_field_can_be_loaded(self) -> None:
+        payload = load_competition_config("configs/competition_morai_kcity_2026.json").to_dict()
+        payload["morai_udp_reference"]["multi_ip"] = "192.168.0.100"
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            config = load_competition_config(handle.name)
+        self.assertEqual(config.morai_udp_reference.multi_ip, "192.168.0.100")
 
 
 if __name__ == "__main__":

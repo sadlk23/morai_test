@@ -18,6 +18,10 @@ Use:
 - config: `configs/competition_morai_kcity_2026.json`
 - launch: `ros1/alpamayo1_5_ros/launch/run_competition_kcity_2026.launch`
 
+Historical venue reference from `sadlk23/sim` is documented separately in
+`docs/morai_sim_workspace_reference.md`. That profile is reference-only and must not override the active K-City defaults unless the venue confirms it.
+The paired LAN reference artifact is `docs/morai_sim_2025_final_udp_profile.json`.
+
 ## Default Input Topics
 
 - camera primary: `/camera/front/image_raw`
@@ -27,9 +31,12 @@ Use:
 - imu: `/imu`
 - optional helper (debug-only): `/Local/heading` (`std_msgs/Float64` primary, `std_msgs/Float32` fallback), `/Local/utm`
 - optional vehicle status (diagnostics-only when enabled): `/ERP/serial_data` by default placeholder
+- optional competition status (diagnostics-only when enabled): topic and type are venue-defined
+- optional collision data (diagnostics-only when enabled): topic and type are venue-defined
 
 Optional helper topics are non-blocking. Missing helper topics must not crash runtime.
 Competition Vehicle Status and Ego Vehicle Status can differ by event program, so the on-site topic and message type must be confirmed before enabling diagnostics.
+Historical `sim` LAN values are reference-only and are not the active defaults in this config.
 
 ## Output Modes
 
@@ -38,6 +45,7 @@ Competition Vehicle Status and Ego Vehicle Status can differ by event program, s
 - type: `morai_msgs/CtrlCmd`
 - competition rule: longi type `1`, pedal mode, `accel` + `brake` + `steering`
 - simulator gear and ExternalCtrl mode are not owned by participant code
+- current runtime default remains this path even when historical LAN references exist
 
 2. Legacy moo serial bridge
 - topic: `/Control/serial_data`
@@ -90,6 +98,7 @@ Expected velocity mode fields:
 - `velocity`
 
 Runtime policy in the K-City config stays on pedal mode by default. If `rosmsg show morai_msgs/CtrlCmd` does not expose the pedal-mode fields above, do not drive until the workspace message package is corrected.
+This is even more important when the venue workspace bundles its own `morai_msgs`, as seen in the historical `sim` workspace.
 
 ## Gear And Mode Policy
 
@@ -186,6 +195,8 @@ rostopic hz /imu
 - message type mismatch (`NavSatFix`, `Imu`, `Float32MultiArray`, `CtrlCmd`)
 - `CtrlCmd` field mismatch now fails fast during direct actuation startup
 - `vehicle_status` is diagnostics-only and is not a bring-up blocker, but the on-site topic/type must be confirmed
+- `competition_status` and `collision_data` are diagnostics-only optional extensions and may not exist until the venue confirms the topic contract
 - stale sensor warnings due to low frequency or timestamp drift
 - actuation not armed (`enable_actuation` without `arm_actuation`)
 - display, ethernet, and simulator-PC network link issues can block topic graph visibility on site
+- LAN-based historical profiles from `sim` are useful references but must not be copied blindly into active config
