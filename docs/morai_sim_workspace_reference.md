@@ -2,7 +2,7 @@
 
 ## Why This Exists
 
-`sadlk23/sim` is treated here as a historical competition reference from a ROS1 workspace that reflected a more field-like setup than a localhost-only development profile.
+`sadlk23/sim` is treated here as a historical reference from a ROS1 workspace that reflected a more field-like setup than a localhost-only development profile.
 
 This repository remains the active runtime:
 
@@ -42,7 +42,7 @@ Historical reference values:
 - `collision_data`: `5677 / 5678`
 - `imu`: `1235 / 1236`
 
-These values are reference-only. They are not the current runtime defaults.
+These values are historical reference only. They are not the active defaults.
 
 ## What To Do With This Reference
 

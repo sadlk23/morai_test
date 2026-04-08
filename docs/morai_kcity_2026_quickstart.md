@@ -19,7 +19,7 @@ Use:
 - launch: `ros1/alpamayo1_5_ros/launch/run_competition_kcity_2026.launch`
 
 Historical venue reference from `sadlk23/sim` is documented separately in
-`docs/morai_sim_workspace_reference.md`. That profile is reference-only and must not override the active K-City defaults unless the venue confirms it.
+`docs/morai_sim_workspace_reference.md`. That is a historical reference only and must not override the active default unless the venue confirms it.
 The paired LAN reference artifact is `docs/morai_sim_2025_final_udp_profile.json`.
 
 ## Default Input Topics
@@ -30,13 +30,14 @@ The paired LAN reference artifact is `docs/morai_sim_2025_final_udp_profile.json
 - gps fallback: `/gps`
 - imu: `/imu`
 - optional helper (debug-only): `/Local/heading` (`std_msgs/Float64` primary, `std_msgs/Float32` fallback), `/Local/utm`
-- optional vehicle status (diagnostics-only when enabled): `/ERP/serial_data` by default placeholder
-- optional competition status (diagnostics-only when enabled): topic and type are venue-defined
-- optional collision data (diagnostics-only when enabled): topic and type are venue-defined
+- optional vehicle status (diagnostics-only optional input when enabled): `/ERP/serial_data` by default placeholder
+- optional competition status (diagnostics-only optional input when enabled): topic and type are venue-defined
+- optional collision data (diagnostics-only optional input when enabled): topic and type are venue-defined
 
-Optional helper topics are non-blocking. Missing helper topics must not crash runtime.
+Optional helper topics and diagnostics-only optional inputs are not bring-up blockers.
+Missing helper topics must not crash runtime.
 Competition Vehicle Status and Ego Vehicle Status can differ by event program, so the on-site topic and message type must be confirmed before enabling diagnostics.
-Historical `sim` LAN values are reference-only and are not the active defaults in this config.
+Historical `sim` LAN values are historical reference only and are not the active default in this config.
 
 ## Output Modes
 
@@ -45,7 +46,9 @@ Historical `sim` LAN values are reference-only and are not the active defaults i
 - type: `morai_msgs/CtrlCmd`
 - competition rule: longi type `1`, pedal mode, `accel` + `brake` + `steering`
 - simulator gear and ExternalCtrl mode are not owned by participant code
-- current runtime default remains this path even when historical LAN references exist
+- the active default remains this path even when historical LAN references exist
+
+`morai_udp_reference` in the debug snapshot is operator diagnostics only. It is useful for checking venue-reference IPs and ports, including historical `competition_status` and `collision_data` channels, but it is not a bring-up blocker.
 
 2. Legacy moo serial bridge
 - topic: `/Control/serial_data`
@@ -194,9 +197,9 @@ rostopic hz /imu
 - topic mismatch between simulator and config (camera/gps names)
 - message type mismatch (`NavSatFix`, `Imu`, `Float32MultiArray`, `CtrlCmd`)
 - `CtrlCmd` field mismatch now fails fast during direct actuation startup
-- `vehicle_status` is diagnostics-only and is not a bring-up blocker, but the on-site topic/type must be confirmed
-- `competition_status` and `collision_data` are diagnostics-only optional extensions and may not exist until the venue confirms the topic contract
+- `vehicle_status` is a diagnostics-only optional input and is not a bring-up blocker, but the on-site topic/type must be confirmed
+- `competition_status` and `collision_data` are diagnostics-only optional inputs and may not exist until the venue confirms the topic contract
 - stale sensor warnings due to low frequency or timestamp drift
 - actuation not armed (`enable_actuation` without `arm_actuation`)
 - display, ethernet, and simulator-PC network link issues can block topic graph visibility on site
-- LAN-based historical profiles from `sim` are useful references but must not be copied blindly into active config
+- LAN-based historical profiles from `sim` are useful operator references but must not be copied blindly into active config

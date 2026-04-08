@@ -7,7 +7,11 @@ import tempfile
 import unittest
 
 from alpamayo1_5.competition.scripts.run_competition import apply_runtime_mode_overrides
-from alpamayo1_5.competition.runtime.config_competition import CompetitionConfig, load_competition_config
+from alpamayo1_5.competition.runtime.config_competition import (
+    CompetitionConfig,
+    load_competition_config,
+    morai_udp_reference_diagnostics,
+)
 
 
 class CompetitionConfigTest(unittest.TestCase):
@@ -56,6 +60,10 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertFalse(config.collision_data.enabled)
         self.assertEqual(config.competition_status.message_type, "")
         self.assertEqual(config.collision_data.message_type, "")
+        self.assertEqual(config.morai_udp_reference.competition_status_host_port, 3314)
+        self.assertEqual(config.morai_udp_reference.competition_status_user_port, 3315)
+        self.assertEqual(config.morai_udp_reference.collision_data_host_port, 5677)
+        self.assertEqual(config.morai_udp_reference.collision_data_user_port, 5678)
 
     def test_invalid_duplicate_camera_names_fail(self) -> None:
         payload = CompetitionConfig().to_dict()
@@ -202,6 +210,29 @@ class CompetitionConfigTest(unittest.TestCase):
             handle.flush()
             config = load_competition_config(handle.name)
         self.assertEqual(config.morai_udp_reference.multi_ip, "192.168.0.100")
+
+    def test_deprecated_required_key_in_diagnostics_input_is_ignored_on_load(self) -> None:
+        payload = load_competition_config("configs/competition_morai_kcity_2026.json").to_dict()
+        payload["competition_status"]["required"] = True
+        payload["competition_status"]["enabled"] = True
+        payload["competition_status"]["topic"] = "/competition/status"
+        payload["competition_status"]["message_type"] = "std_msgs/String"
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            config = load_competition_config(handle.name)
+        self.assertTrue(config.competition_status.enabled)
+        self.assertEqual(config.competition_status.topic, "/competition/status")
+
+    def test_morai_udp_reference_diagnostics_include_historical_status_ports(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.morai_udp_reference.multi_ip = "192.168.0.100"
+        diagnostics = morai_udp_reference_diagnostics(config)
+        self.assertEqual(diagnostics["multi_ip"], "192.168.0.100")
+        self.assertEqual(diagnostics["competition_status_host_port"], 3314)
+        self.assertEqual(diagnostics["competition_status_user_port"], 3315)
+        self.assertEqual(diagnostics["collision_data_host_port"], 5677)
+        self.assertEqual(diagnostics["collision_data_user_port"], 5678)
 
 
 if __name__ == "__main__":

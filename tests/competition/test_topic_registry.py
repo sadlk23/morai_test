@@ -39,6 +39,10 @@ class TopicRegistryTest(unittest.TestCase):
         self.assertIn("vehicle_status", sensor_kinds)
         self.assertIn("competition_status", sensor_kinds)
         self.assertIn("collision_data", sensor_kinds)
+        competition_status_specs = [spec for spec in specs if spec.sensor_kind == "competition_status"]
+        collision_data_specs = [spec for spec in specs if spec.sensor_kind == "collision_data"]
+        self.assertTrue(all(not spec.required for spec in competition_status_specs))
+        self.assertTrue(all(not spec.required for spec in collision_data_specs))
         heading_specs = [
             spec for spec in specs if spec.sensor_kind == "optional_heading" and spec.topic == "/Local/heading"
         ]

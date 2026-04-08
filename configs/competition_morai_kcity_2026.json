@@ -79,14 +79,12 @@
     "enabled": false,
     "topic": "",
     "message_type": "",
-    "required": false,
     "max_staleness_s": 0.5
   },
   "collision_data": {
     "enabled": false,
     "topic": "",
     "message_type": "",
-    "required": false,
     "max_staleness_s": 0.5
   },
   "route_command": {
@@ -194,6 +192,10 @@
     "ctrl_cmd_user_port": 9092,
     "vehicle_status_host_port": 7701,
     "vehicle_status_user_port": 7702,
+    "competition_status_host_port": 3314,
+    "competition_status_user_port": 3315,
+    "collision_data_host_port": 5677,
+    "collision_data_user_port": 5678,
     "get_traffic_host_port": 7602,
     "get_traffic_user_port": 7502,
     "set_traffic_host_port": 7801,

@@ -251,18 +251,27 @@ class VehicleStatusConfig:
 
 @dataclass(slots=True)
 class DiagnosticsInputConfig:
-    """Optional diagnostics-only ROS input."""
+    """Diagnostics-only optional ROS input.
+
+    The runtime never treats these channels as bring-up blockers.
+    Historical JSON may still contain a deprecated ``required`` key; the loader
+    accepts and ignores it for backward compatibility.
+    """
 
     enabled: bool = False
     topic: str = ""
     message_type: str = ""
-    required: bool = False
     max_staleness_s: float = 0.5
 
 
 @dataclass(slots=True)
 class MoraiUdpReferenceConfig:
-    """MORAI UDP reference ports from moo for documentation/future bridge wiring."""
+    """Historical MORAI UDP reference values for operator diagnostics.
+
+    These values are not active runtime behavior by themselves. They exist so
+    the debug snapshot can surface venue-reference information, including older
+    LAN-based competition channels seen in prior MORAI workspaces.
+    """
 
     user_ip: str = "127.0.0.1"
     host_ip: str = "127.0.0.1"
@@ -279,6 +288,10 @@ class MoraiUdpReferenceConfig:
     ctrl_cmd_user_port: int = 9092
     vehicle_status_host_port: int = 7701
     vehicle_status_user_port: int = 7702
+    competition_status_host_port: int | None = None
+    competition_status_user_port: int | None = None
+    collision_data_host_port: int | None = None
+    collision_data_user_port: int | None = None
     get_traffic_host_port: int = 7602
     get_traffic_user_port: int = 7502
     set_traffic_host_port: int = 7801
@@ -756,6 +769,15 @@ class CompetitionConfig:
         for port_name, port_value in reference_ports:
             if port_value <= 0:
                 errors.append(f"morai_udp_reference.{port_name} must be > 0")
+        optional_reference_ports = [
+            ("competition_status_host_port", self.morai_udp_reference.competition_status_host_port),
+            ("competition_status_user_port", self.morai_udp_reference.competition_status_user_port),
+            ("collision_data_host_port", self.morai_udp_reference.collision_data_host_port),
+            ("collision_data_user_port", self.morai_udp_reference.collision_data_user_port),
+        ]
+        for port_name, port_value in optional_reference_ports:
+            if port_value is not None and port_value <= 0:
+                errors.append(f"morai_udp_reference.{port_name} must be > 0 when set")
         camera_indices = [camera.camera_index for camera in self.cameras if camera.camera_index is not None]
         if len(camera_indices) != len(set(camera_indices)):
             errors.append("camera.camera_index values must be unique when provided")
@@ -788,6 +810,12 @@ def _build_camera_list(raw: list[dict[str, Any]]) -> list[CameraConfig]:
     return [CameraConfig(**item) for item in raw]
 
 
+def _build_diagnostics_input_config(raw: dict[str, Any]) -> DiagnosticsInputConfig:
+    allowed_keys = {"enabled", "topic", "message_type", "max_staleness_s"}
+    normalized = {key: value for key, value in raw.items() if key in allowed_keys}
+    return DiagnosticsInputConfig(**normalized)
+
+
 def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
     controller_raw = raw.get("controller", {})
     return CompetitionConfig(
@@ -818,8 +846,8 @@ def _build_config(raw: dict[str, Any]) -> CompetitionConfig:
         competition_profile=CompetitionProfileConfig(**raw.get("competition_profile", {})),
         optional_ego_topics=OptionalEgoTopicsConfig(**raw.get("optional_ego_topics", {})),
         vehicle_status=VehicleStatusConfig(**raw.get("vehicle_status", {})),
-        competition_status=DiagnosticsInputConfig(**raw.get("competition_status", {})),
-        collision_data=DiagnosticsInputConfig(**raw.get("collision_data", {})),
+        competition_status=_build_diagnostics_input_config(raw.get("competition_status", {})),
+        collision_data=_build_diagnostics_input_config(raw.get("collision_data", {})),
         morai_udp_reference=MoraiUdpReferenceConfig(**raw.get("morai_udp_reference", {})),
         udp_output=UdpOutputConfig(**raw.get("udp_output", {})),
         logging=LoggingConfig(**raw.get("logging", {})),
@@ -908,6 +936,10 @@ def morai_udp_reference_diagnostics(config: CompetitionConfig) -> dict[str, Any]
         "ctrl_cmd_user_port": reference.ctrl_cmd_user_port,
         "vehicle_status_host_port": reference.vehicle_status_host_port,
         "vehicle_status_user_port": reference.vehicle_status_user_port,
+        "competition_status_host_port": reference.competition_status_host_port,
+        "competition_status_user_port": reference.competition_status_user_port,
+        "collision_data_host_port": reference.collision_data_host_port,
+        "collision_data_user_port": reference.collision_data_user_port,
         "imu_host_port": reference.imu_host_port,
         "imu_user_port": reference.imu_user_port,
     }

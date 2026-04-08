@@ -29,9 +29,11 @@ class CompetitionDocsSmokeTest(unittest.TestCase):
             self.assertIn("/Local/heading", document)
             self.assertIn("/Local/utm", document)
             self.assertIn("/ERP/serial_data", document)
-            self.assertIn("historical", document.lower())
+            self.assertIn("historical reference", document.lower())
+            self.assertIn("active default", document.lower())
+            self.assertIn("diagnostics-only", document.lower())
 
-        self.assertIn("historical", sim_reference.lower())
+        self.assertIn("historical reference", sim_reference.lower())
         self.assertIn("morai_msgs", sim_reference)
         self.assertEqual(sim_reference_json["multi_ip"], "192.168.0.100")
         self.assertEqual(sim_reference_json["ctrl_cmd_host_port"], 3300)
