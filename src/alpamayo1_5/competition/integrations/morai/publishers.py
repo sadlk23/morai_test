@@ -13,6 +13,7 @@ from alpamayo1_5.competition.integrations.morai.message_mapping import (
     validate_control_message_contract,
 )
 from alpamayo1_5.competition.integrations.morai.ros_message_utils import (
+    MoraiIntegrationUnavailable,
     import_message_class,
     import_rospy,
 )
@@ -81,10 +82,33 @@ class MoraiCtrlCmdPublisher:
             raise ValueError(
                 "MoraiCtrlCmdPublisher requires ros_output.actuation_armed=true when require_actuation_arm=true"
             )
-        self._rospy = import_rospy()
+        try:
+            self._rospy = import_rospy()
+        except MoraiIntegrationUnavailable as exc:
+            raise MoraiActuationContractError(
+                "Direct actuation self-check failed for %s on topic %s because ROS is not ready: %s. "
+                "debug-only can run without direct actuation, but debug-only is false and actuation startup cannot continue."
+                % (
+                    config.actuation_message_type,
+                    config.actuation_topic,
+                    exc,
+                )
+            ) from exc
         if not self._rospy.core.is_initialized():  # pragma: no cover - ROS host dependent
             self._rospy.init_node(config.node_name, anonymous=True, disable_signals=True)
-        self._message_cls = import_message_class(config.actuation_message_type)
+        try:
+            self._message_cls = import_message_class(config.actuation_message_type)
+        except MoraiIntegrationUnavailable as exc:
+            raise MoraiActuationContractError(
+                "Direct actuation self-check failed for %s on topic %s because the active workspace could not resolve the message contract: %s. "
+                "This usually means wrong morai_msgs in workspace, an unsourced overlay, or venue workspace drift. "
+                "debug-only can still be used for sensor bring-up, but debug-only is false and direct actuation cannot continue."
+                % (
+                    config.actuation_message_type,
+                    config.actuation_topic,
+                    exc,
+                )
+            ) from exc
         self._command_mode = config.command_mode
         self._contract_summary = self._startup_self_check()
         self._publisher = self._rospy.Publisher(
@@ -121,6 +145,8 @@ class MoraiCtrlCmdPublisher:
             raise MoraiActuationContractError(
                 "Direct actuation self-check failed for %s on topic %s: %s. "
                 "Competition direct actuation expects %s. "
+                "This usually points to wrong morai_msgs in workspace or a stale ROS overlay. "
+                "debug-only can still be used for sensor/topic verification, but debug-only is false and actuation contract validation failed. "
                 "Run `rosmsg show %s` and confirm pedal mode needs %s or velocity mode needs %s."
                 % (
                     self.config.actuation_message_type,

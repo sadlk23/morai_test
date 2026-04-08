@@ -17,8 +17,27 @@ def import_rospy() -> Any:
     try:
         import rospy  # type: ignore
     except ImportError as exc:  # pragma: no cover - exercised only on ROS hosts
-        raise MoraiIntegrationUnavailable("rospy is not available in this environment") from exc
+        raise MoraiIntegrationUnavailable(
+            "rospy is not available in this environment. "
+            "Source the ROS1 Noetic workspace before live MORAI bring-up."
+        ) from exc
     return rospy
+
+
+def _message_import_hint(message_type: str) -> str:
+    if message_type == "morai_msgs/CtrlCmd":
+        return (
+            "This usually means the active catkin workspace does not contain the expected "
+            "morai_msgs, the wrong overlay is sourced, or the venue workspace drifted. "
+            "Run `rosmsg show morai_msgs/CtrlCmd` and verify the active workspace contract "
+            "before enabling direct actuation."
+        )
+    if message_type.startswith("morai_msgs/"):
+        return (
+            "Verify that the active catkin workspace contains the expected morai_msgs package "
+            "and that the correct ROS overlay is sourced."
+        )
+    return "Verify that the required ROS message package exists in the sourced workspace."
 
 
 def import_message_class(message_type: str) -> type[Any]:
@@ -34,7 +53,8 @@ def import_message_class(message_type: str) -> type[Any]:
         return getattr(module, class_name)
     except (ImportError, AttributeError) as exc:  # pragma: no cover - ROS host dependent
         raise MoraiIntegrationUnavailable(
-            f"ROS message class {message_type} is not available in this environment"
+            f"ROS message class {message_type} is not available in this environment. "
+            f"{_message_import_hint(message_type)}"
         ) from exc
 
 

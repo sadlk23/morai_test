@@ -54,6 +54,16 @@ class RosWrapperTest(unittest.TestCase):
             resolved = self.module.resolve_config_path(repo_root, "configs/competition_morai_kcity_2026.json")
             self.assertEqual(resolved, config_path.resolve())
 
+    def test_resolve_config_path_supports_erp_repo_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            (repo_root / "src" / "alpamayo1_5").mkdir(parents=True)
+            config_path = repo_root / "configs" / "competition_morai_erp.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text("{}", encoding="utf-8")
+            resolved = self.module.resolve_config_path(repo_root, "configs/competition_morai_erp.json")
+            self.assertEqual(resolved, config_path.resolve())
+
     def test_build_runtime_argv_includes_debug_and_arming_flags(self) -> None:
         argv = self.module.build_runtime_argv(
             runtime_python="python3.11",
@@ -68,6 +78,15 @@ class RosWrapperTest(unittest.TestCase):
         self.assertIn("--arm-actuation", argv)
         self.assertIn("--enable-legacy-serial-bridge", argv)
         self.assertIn("--max-cycles", argv)
+
+    def test_validate_runtime_flags_rejects_debug_only_conflicts(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.module.validate_runtime_flags(
+                debug_only=True,
+                enable_actuation=True,
+                arm_actuation=False,
+                enable_legacy_serial_bridge=False,
+            )
 
     def test_debug_only_env_flag_is_truthy(self) -> None:
         os.environ[self.module.ENV_DEBUG_ONLY] = "true"

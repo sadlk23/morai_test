@@ -1,21 +1,24 @@
 <launch>
-  <!-- Debug-first bring-up remains the default. -->
-  <!-- Direct /ctrl_cmd actuation requires morai_msgs/CtrlCmd in the sourced catkin workspace. -->
+  <!-- This branch is ERP-oriented and not the main Ioniq5 competition default. -->
+  <!-- The ERP config already enables legacy serial bridge publishing when debug_only is false. -->
+  <!-- enable_legacy_serial_bridge=false here does not disable the config default; it only avoids adding an extra enable override. -->
   <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT)" />
-  <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH)" />
+  <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH configs/competition_morai_erp.json)" />
   <arg name="runtime_python" default="$(optenv ALPAMAYO_RUNTIME_PYTHON)" />
   <arg name="debug_only" default="true" />
   <arg name="enable_actuation" default="false" />
   <arg name="arm_actuation" default="false" />
+  <arg name="enable_legacy_serial_bridge" default="false" />
   <node
     pkg="alpamayo1_5_ros"
     type="run_competition_live_node.py"
-    name="alpamayo_morai_live_runtime"
+    name="alpamayo_morai_erp_runtime"
     output="screen"
     args="--repo-root $(arg repo_root) --config $(arg config)">
     <env name="ALPAMAYO_RUNTIME_PYTHON" value="$(arg runtime_python)" />
     <env name="ALPAMAYO_DEBUG_ONLY" value="$(arg debug_only)" />
     <env name="ALPAMAYO_ENABLE_ACTUATION" value="$(arg enable_actuation)" />
     <env name="ALPAMAYO_ARM_ACTUATION" value="$(arg arm_actuation)" />
+    <env name="ALPAMAYO_ENABLE_LEGACY_SERIAL_BRIDGE" value="$(arg enable_legacy_serial_bridge)" />
   </node>
 </launch>

@@ -43,6 +43,12 @@ K-City 2026 wrapper:
 roslaunch alpamayo1_5_ros run_competition_kcity_2026.launch
 ```
 
+ERP-oriented wrapper on the `erp-runtime` branch:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_erp.launch
+```
+
 ## Python/ROS1 Constraint
 
 Target field environment is Ubuntu 20.04 + ROS1 Noetic, but the runtime requires Python 3.10+.
@@ -60,6 +66,23 @@ Supported wrapper env vars:
 - `ALPAMAYO_ENABLE_ACTUATION`
 - `ALPAMAYO_ARM_ACTUATION`
 - `ALPAMAYO_ENABLE_LEGACY_SERIAL_BRIDGE`
+
+## morai_msgs Workspace Policy
+
+Direct MORAI actuation is not a soft dependency. The active `/ctrl_cmd` path depends on `morai_msgs/CtrlCmd`, so the ROS1 wrapper package now declares `morai_msgs` as a catkin dependency.
+
+Recommended on-site policy:
+
+- if possible, bring a validated `catkin_ws/src/morai_msgs` into the field workspace
+- if the venue provides its own `morai_msgs`, treat it as untrusted until verified
+- always run `rosmsg show morai_msgs/CtrlCmd` before any actuation attempt
+
+Why this matters:
+
+- development and venue workspaces can drift
+- the venue PC may source a different overlay than the development machine
+- the topic name `/ctrl_cmd` can stay the same while the underlying message contract differs
+- a wrong `morai_msgs` package can make correct code fail or move the vehicle incorrectly
 
 ## Topic Compatibility
 
@@ -92,6 +115,7 @@ Direct MORAI output:
 - lateral field: `steering` or `front_steer`
 - participant code does not own simulator gear or ExternalCtrl transitions
 - this remains the active default even if the venue exposes extra LAN or judging signals
+- direct actuation startup now fails fast if the sourced workspace cannot resolve `morai_msgs/CtrlCmd` or if the resolved message is missing pedal-mode fields
 
 Legacy moo bridge output:
 
@@ -141,9 +165,15 @@ python -m alpamayo1_5.competition.scripts.run_competition \
   --enable-legacy-serial-bridge
 ```
 
+The `erp-runtime` branch also adds `configs/competition_morai_erp.json` and
+`docs/morai_erp_runtime.md` for ERP-oriented MORAI vehicle bring-up. That branch
+keeps `/ctrl_cmd` available, but its active default path is `/Control/serial_data`.
+Its ERP brake default follows the stronger `moo` bridge contract and publishes ERP-style `0~200` brake on `/Control/serial_data`.
+
 ## Verification Checklist
 
 ```bash
+source /opt/ros/noetic/setup.bash
 rosmsg show morai_msgs/CtrlCmd
 rostopic list
 rostopic type /camera/front/image_raw
@@ -166,10 +196,12 @@ rostopic hz /imu
 
 - desktop-only venue PCs may expose different display, ethernet, and USB conditions than a development laptop
 - Python handoff mismatch: wrapper starts under Python 3.8 but `runtime_python` is missing
+- wrong ROS overlay order: the shell is sourced, but the active workspace still resolves the wrong `morai_msgs`
 - topic mismatch: simulator publishes `camera_image` or `/gps` while config points elsewhere
 - message package mismatch: topic type differs from config `message_type`, or the ROS workspace has the wrong `morai_msgs`
 - historical `sim` workspaces bundled `morai_msgs`, so `rosmsg show morai_msgs/CtrlCmd` is worth checking before any actuation run
 - `CtrlCmd` contract mismatch: direct actuation now fails fast if required fields are missing
+- same topic name, different message definition: `/ctrl_cmd` can exist while the active `CtrlCmd` fields still do not match pedal mode
 - `vehicle_status` topic/type can differ by venue setup and must be checked on site even though it is a diagnostics-only optional input
 - `competition_status` and `collision_data` are diagnostics-only optional inputs and should not be assumed present until the venue confirms them
 - stale sensor warnings: timestamp/Hz mismatch causes waiting or degraded states

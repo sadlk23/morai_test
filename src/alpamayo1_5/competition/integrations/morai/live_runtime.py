@@ -296,6 +296,7 @@ class MoraiLiveRuntime:
 
     def _vehicle_status_summary(self, live_snapshot: LiveSensorSnapshot) -> dict[str, object]:
         summary = dict(live_snapshot.diagnostics.get("vehicle_status", {}))
+        summary.setdefault("available", live_snapshot.vehicle_status is not None)
         if live_snapshot.vehicle_status_timestamp_s is None:
             summary.setdefault("age_s", None)
             summary.setdefault("stale", False)

@@ -899,17 +899,26 @@ def runtime_policy_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
     """Expose runtime policy decisions that operators should verify on site."""
 
     profile = config.competition_profile
+    primary_output_path = "debug_only"
+    if config.legacy_serial_bridge.enabled and config.legacy_serial_bridge.publish_enabled:
+        primary_output_path = "legacy_serial_bridge"
+    elif config.ros_output.publish_actuation:
+        primary_output_path = "direct_actuation"
     return {
         "command_mode": config.ros_output.command_mode,
         "pedal_mode": config.ros_output.command_mode == "pedal",
+        "primary_output_path": primary_output_path,
         "direct_actuation_enabled": config.ros_output.publish_actuation,
+        "direct_actuation_requires_morai_msgs": True,
         "direct_actuation_topic": config.ros_output.actuation_topic,
         "direct_actuation_message_type": config.ros_output.actuation_message_type,
         "direct_actuation_longitudinal_type": 1 if config.ros_output.command_mode == "pedal" else 2,
         "direct_actuation_uses_accel_brake": config.ros_output.command_mode == "pedal",
         "legacy_bridge_enabled": config.legacy_serial_bridge.enabled,
         "legacy_bridge_publish_enabled": config.legacy_serial_bridge.publish_enabled,
+        "legacy_bridge_topic": config.legacy_serial_bridge.topic,
         "vehicle_status_subscriber_enabled": config.vehicle_status.enabled,
+        "vehicle_status_topic": config.vehicle_status.topic,
         "competition_status_subscriber_enabled": config.competition_status.enabled,
         "collision_data_subscriber_enabled": config.collision_data.enabled,
         "controls_gear_mode": profile.participant_controls_gear_mode,

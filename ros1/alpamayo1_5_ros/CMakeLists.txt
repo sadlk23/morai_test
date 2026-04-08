@@ -1,9 +1,16 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(alpamayo1_5_ros)
 
-find_package(catkin REQUIRED COMPONENTS rospy sensor_msgs std_msgs)
+find_package(catkin REQUIRED COMPONENTS
+  morai_msgs
+  rospy
+  sensor_msgs
+  std_msgs
+)
 
-catkin_package()
+catkin_package(
+  CATKIN_DEPENDS morai_msgs rospy sensor_msgs std_msgs
+)
 
 catkin_install_python(PROGRAMS
   scripts/run_competition_live_node.py

@@ -50,6 +50,17 @@ class TopicRegistryTest(unittest.TestCase):
         self.assertIn("std_msgs/Float64", heading_types)
         self.assertIn("std_msgs/Float32", heading_types)
 
+    def test_erp_config_exposes_erp_vehicle_status_input(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        specs = build_subscription_specs(config)
+        topics = {spec.topic for spec in specs}
+        vehicle_status_specs = [spec for spec in specs if spec.sensor_kind == "vehicle_status"]
+
+        self.assertIn("/ERP/serial_data", topics)
+        self.assertEqual(len(vehicle_status_specs), 1)
+        self.assertEqual(vehicle_status_specs[0].topic, "/ERP/serial_data")
+        self.assertEqual(config.legacy_serial_bridge.topic, "/Control/serial_data")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from alpamayo1_5.competition.contracts import CameraFrame, GpsFix, ImuSample
 from alpamayo1_5.competition.integrations.morai.live_runtime import LivePacketAssembler, MoraiLiveRuntime
@@ -32,6 +33,25 @@ class _CapturePublisher:
 
 
 class LiveRuntimeTest(unittest.TestCase):
+    def test_debug_first_build_publishers_does_not_touch_direct_actuation_when_disabled(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.ros_output.publish_actuation = False
+        config.legacy_serial_bridge.publish_enabled = False
+        runtime = MoraiLiveRuntime.__new__(MoraiLiveRuntime)
+        runtime.config = config
+        with patch(
+            "alpamayo1_5.competition.integrations.morai.live_runtime.RosJsonCommandPublisher",
+            return_value=object(),
+        ), patch(
+            "alpamayo1_5.competition.integrations.morai.live_runtime.RosDebugSnapshotPublisher",
+            return_value=object(),
+        ), patch(
+            "alpamayo1_5.competition.integrations.morai.live_runtime.MoraiCtrlCmdPublisher",
+            side_effect=AssertionError("direct actuation publisher should stay disabled"),
+        ):
+            publishers = MoraiLiveRuntime._build_publishers(runtime)
+        self.assertEqual(len(publishers), 2)
+
     def test_live_runtime_runs_one_cycle_with_mocked_buffers(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
         pipeline = CompetitionRuntimePipeline(config, publishers=[])
@@ -83,6 +103,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertFalse(decision.diagnostics["competition_status"]["available"])
         self.assertIn("collision_data", snapshot.diagnostics)
         self.assertFalse(snapshot.diagnostics["collision_data"]["available"])
+        self.assertTrue(decision.diagnostics["runtime_policy"]["direct_actuation_requires_morai_msgs"])
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
@@ -291,6 +312,97 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertIn("age_s", snapshot.diagnostics["collision_data"])
         self.assertTrue(decision.diagnostics["runtime_policy"]["competition_status_subscriber_enabled"])
         self.assertTrue(decision.diagnostics["runtime_policy"]["collision_data_subscriber_enabled"])
+
+    def test_erp_runtime_survives_without_vehicle_status_samples(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        pipeline = CompetitionRuntimePipeline(config, publishers=[])
+        assembler = LivePacketAssembler(config, time_fn=lambda: 9.0)
+        subscribers = _FakeSubscribers(
+            LiveSensorSnapshot(
+                camera_frames={
+                    "front": CameraFrame(
+                        camera_id="front",
+                        timestamp_s=9.0,
+                        frame_id=4,
+                        image=[[[0, 0, 0] for _ in range(4)] for _ in range(4)],
+                        shape=(4, 4, 3),
+                        encoding="rgb8",
+                    )
+                },
+                gps_fix=GpsFix(timestamp_s=9.0, latitude_deg=37.0, longitude_deg=127.0, speed_mps=1.0),
+                imu_sample=ImuSample(timestamp_s=9.0, yaw_rad=0.0, yaw_rate_rps=0.0),
+                route_command="keep lane",
+            )
+        )
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        output = runtime.run_cycle_once()
+        self.assertIsNotNone(output)
+        assert output is not None
+        decision, snapshot = output
+        self.assertFalse(decision.diagnostics["vehicle_status"]["available"])
+        self.assertEqual(decision.diagnostics["runtime_policy"]["primary_output_path"], "legacy_serial_bridge")
+        self.assertEqual(decision.diagnostics["runtime_policy"]["legacy_bridge_topic"], "/Control/serial_data")
+        self.assertEqual(decision.diagnostics["runtime_policy"]["vehicle_status_topic"], "/ERP/serial_data")
+        self.assertIn("legacy_serial_bridge", snapshot.diagnostics)
+        self.assertTrue(snapshot.diagnostics["legacy_serial_bridge"]["publish_enabled"])
+
+    def test_erp_runtime_reflects_vehicle_status_and_command_mismatch(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        pipeline = CompetitionRuntimePipeline(config, publishers=[])
+        assembler = LivePacketAssembler(config, time_fn=lambda: 10.0)
+        subscribers = _FakeSubscribers(
+            LiveSensorSnapshot(
+                camera_frames={
+                    "front": CameraFrame(
+                        camera_id="front",
+                        timestamp_s=10.0,
+                        frame_id=5,
+                        image=[[[0, 0, 0] for _ in range(4)] for _ in range(4)],
+                        shape=(4, 4, 3),
+                        encoding="rgb8",
+                    )
+                },
+                gps_fix=GpsFix(timestamp_s=10.0, latitude_deg=37.0, longitude_deg=127.0, speed_mps=1.8),
+                imu_sample=ImuSample(timestamp_s=10.0, yaw_rad=0.0, yaw_rate_rps=0.0),
+                route_command="keep lane",
+                vehicle_status={"speed_mps": 1.2, "gear": 0.0, "steer_rad": 0.03, "brake": 0.1},
+                vehicle_status_timestamp_s=9.85,
+                diagnostics={
+                    "receive_counts": {"vehicle_status": 1},
+                    "last_errors": {},
+                    "last_error_timestamps_s": {},
+                    "optional_ego": {},
+                    "vehicle_status": {
+                        "available": True,
+                        "speed_mps": 1.2,
+                        "gear": 0.0,
+                        "steer_rad": 0.03,
+                        "brake": 0.1,
+                    },
+                },
+            )
+        )
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=subscribers,  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        output = runtime.run_cycle_once()
+        self.assertIsNotNone(output)
+        assert output is not None
+        decision, snapshot = output
+        self.assertTrue(decision.diagnostics["vehicle_status"]["available"])
+        self.assertIn("speed_delta_mps", decision.diagnostics["command_status"])
+        self.assertIn("steer_delta_rad", decision.diagnostics["command_status"])
+        self.assertIn("brake_delta", decision.diagnostics["command_status"])
+        self.assertEqual(decision.diagnostics["runtime_policy"]["primary_output_path"], "legacy_serial_bridge")
+        self.assertEqual(snapshot.diagnostics["runtime_policy"]["vehicle_status_topic"], "/ERP/serial_data")
 
 
 if __name__ == "__main__":

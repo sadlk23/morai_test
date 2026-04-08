@@ -9,6 +9,7 @@ from alpamayo1_5.competition.integrations.morai.publishers import (
     MoraiActuationContractError,
     MoraiCtrlCmdPublisher,
 )
+from alpamayo1_5.competition.integrations.morai.ros_message_utils import MoraiIntegrationUnavailable
 from alpamayo1_5.competition.runtime.config_competition import RosOutputConfig
 
 
@@ -69,6 +70,24 @@ class MoraiPublisherTest(unittest.TestCase):
                 MoraiCtrlCmdPublisher(config)
         self.assertIn("longi type 1 pedal mode", str(ctx.exception))
         self.assertIn("accel/brake + steering", str(ctx.exception))
+        self.assertIn("wrong morai_msgs in workspace", str(ctx.exception))
+
+    def test_startup_self_check_fails_fast_when_morai_message_package_cannot_be_resolved(self) -> None:
+        config = RosOutputConfig(publish_actuation=True, actuation_armed=True)
+        with patch(
+            "alpamayo1_5.competition.integrations.morai.publishers.import_rospy",
+            return_value=_FakeRospy(),
+        ), patch(
+            "alpamayo1_5.competition.integrations.morai.publishers.import_message_class",
+            side_effect=MoraiIntegrationUnavailable(
+                "ROS message class morai_msgs/CtrlCmd is not available in this environment"
+            ),
+        ):
+            with self.assertRaises(MoraiActuationContractError) as ctx:
+                MoraiCtrlCmdPublisher(config)
+        self.assertIn("wrong morai_msgs in workspace", str(ctx.exception))
+        self.assertIn("debug-only is false", str(ctx.exception))
+        self.assertIn("/ctrl_cmd", str(ctx.exception))
 
 
 if __name__ == "__main__":
