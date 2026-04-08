@@ -7,7 +7,15 @@ from contextlib import nullcontext
 from time import perf_counter
 from typing import Iterable
 
-from alpamayo1_5.competition.contracts import DebugSnapshot, PlanResult, SafetyDecision, SensorPacket
+from alpamayo1_5.competition.contracts import (
+    ControlCommand,
+    DebugSnapshot,
+    PlanResult,
+    PlannerInput,
+    SafetyDecision,
+    SensorPacket,
+    SynchronizedFrame,
+)
 from alpamayo1_5.competition.controllers.controller_runtime import ControllerRuntime
 from alpamayo1_5.competition.io.ros_interface import RosCommandPublisher, RosInterfaceUnavailable
 from alpamayo1_5.competition.io.sync import SensorSynchronizer
@@ -85,6 +93,54 @@ class CompetitionRuntimePipeline:
         if self.config.logging.enable_latency_profiling:
             return monitor.measure(stage_name)
         return nullcontext()
+
+    def _build_fail_closed_command(
+        self,
+        packet: SensorPacket,
+        planner_input: PlannerInput | None,
+        reason: str,
+    ) -> ControlCommand:
+        """Build an emergency stop command even when runtime recovery is partial."""
+
+        if planner_input is not None:
+            return self.safety_filter._stop_command(planner_input, reason)
+        return ControlCommand(
+            frame_id=packet.frame_id,
+            timestamp_s=packet.timestamp_s,
+            steering=0.0,
+            throttle=0.0,
+            brake=self.config.safety.emergency_brake_value,
+            target_speed_mps=0.0,
+            valid=False,
+            saturated=True,
+            reason=reason,
+        )
+
+    def _recover_runtime_context(
+        self,
+        packet: SensorPacket,
+        synchronized: SynchronizedFrame | None,
+        planner_input: PlannerInput | None,
+    ) -> tuple[SynchronizedFrame, PlannerInput | None]:
+        """Recover enough runtime context to build a conservative stop command."""
+
+        recovered_sync = synchronized
+        recovered_planner_input = planner_input
+        if recovered_sync is None:
+            recovered_sync = self.synchronizer.synchronize(packet)
+        if recovered_planner_input is None:
+            image_features = self.image_preprocessor.preprocess(recovered_sync)
+            ego_state = self.state_preprocessor.estimate(
+                packet.timestamp_s,
+                recovered_sync.gps_fix,
+                recovered_sync.imu_sample,
+            )
+            recovered_planner_input = self.sensor_fusion.fuse(
+                recovered_sync,
+                ego_state,
+                image_features,
+            )
+        return recovered_sync, recovered_planner_input
 
     def run_cycle(self, packet: SensorPacket) -> tuple[SafetyDecision, DebugSnapshot]:
         """Execute one full control cycle."""
@@ -171,39 +227,83 @@ class CompetitionRuntimePipeline:
                 snapshot.safety_flags.extend(["publish_failure"])
                 snapshot.diagnostics["publish_errors"] = publish_errors
         except Exception as exc:
-            if synchronized is None:
-                synchronized = self.synchronizer.synchronize(packet)
-            if planner_input is None:
-                image_features = self.image_preprocessor.preprocess(synchronized)
-                ego_state = self.state_preprocessor.estimate(packet.timestamp_s, packet.gps_fix, packet.imu_sample)
-                planner_input = self.sensor_fusion.fuse(synchronized, ego_state, image_features)
+            runtime_error = f"{type(exc).__name__}: {exc}"
+            logger.exception("Competition runtime cycle failed frame=%s", packet.frame_id)
+            recovery_error: str | None = None
+            recovery_status = "context_reused"
+            try:
+                synchronized, planner_input = self._recover_runtime_context(
+                    packet,
+                    synchronized,
+                    planner_input,
+                )
+            except Exception as recovery_exc:
+                recovery_status = "recovery_failed"
+                recovery_error = f"{type(recovery_exc).__name__}: {recovery_exc}"
+                logger.exception(
+                    "Competition runtime fail-closed recovery failed frame=%s",
+                    packet.frame_id,
+                )
+            else:
+                if synchronized is None and planner_input is None:
+                    recovery_status = "no_context_available"
+                elif planner_input is None:
+                    recovery_status = "sync_only_recovered"
+                else:
+                    recovery_status = "planner_input_recovered"
+            safety_flags = ["runtime_exception"]
+            if recovery_error is not None:
+                safety_flags.append("runtime_exception_recovery_failed")
             decision = SafetyDecision(
                 frame_id=packet.frame_id,
                 timestamp_s=packet.timestamp_s,
-                command=self.safety_filter._stop_command(
-                    planner_input,
-                    "runtime_exception",
-                ),
+                command=self._build_fail_closed_command(packet, planner_input, "runtime_exception"),
                 intervention="runtime_exception_stop",
                 risk_level="critical",
-                safety_flags=["runtime_exception"],
+                safety_flags=safety_flags,
                 fallback_used=True,
-                diagnostics={"error": f"{type(exc).__name__}: {exc}"},
+                diagnostics={
+                    "error": runtime_error,
+                    "recovery_status": recovery_status,
+                },
             )
+            if recovery_error is not None:
+                decision.diagnostics["recovery_error"] = recovery_error
+            if synchronized is not None:
+                decision.diagnostics["sync_diagnostics"] = dict(synchronized.diagnostics)
+            if planner_input is not None:
+                decision.diagnostics["planner_input_valid"] = planner_input.valid
+                decision.diagnostics["planner_input_diagnostics"] = dict(planner_input.diagnostics)
             decision.diagnostics["competition_profile"] = competition_profile_diagnostics(self.config)
             decision.diagnostics["runtime_policy"] = runtime_policy_diagnostics(self.config)
+            decision.diagnostics["morai_udp_reference"] = morai_udp_reference_diagnostics(self.config)
             snapshot = DebugSnapshot(
                 frame_id=packet.frame_id,
                 timestamp_s=packet.timestamp_s,
+                safety_flags=list(safety_flags),
                 stage_latency_ms=monitor.snapshot(),
                 diagnostics={
-                    "runtime_error": f"{type(exc).__name__}: {exc}",
+                    "runtime_error": runtime_error,
+                    "recovery_status": recovery_status,
                     "publisher_warnings": list(self.publisher_warnings),
                     "competition_profile": competition_profile_diagnostics(self.config),
                     "runtime_policy": runtime_policy_diagnostics(self.config),
                     "morai_udp_reference": morai_udp_reference_diagnostics(self.config),
                 },
             )
+            if recovery_error is not None:
+                snapshot.diagnostics["recovery_error"] = recovery_error
+            if synchronized is not None:
+                snapshot.diagnostics["sync_diagnostics"] = dict(synchronized.diagnostics)
+            if planner_input is not None:
+                snapshot.diagnostics["planner_input_valid"] = planner_input.valid
+                snapshot.diagnostics["planner_input_diagnostics"] = dict(planner_input.diagnostics)
+            publish_errors = []
+            with self._measure(monitor, "publish"):
+                publish_errors = self._publish(decision, snapshot)
+            if publish_errors:
+                snapshot.safety_flags.extend(["publish_failure"])
+                snapshot.diagnostics["publish_errors"] = publish_errors
 
         snapshot.stage_latency_ms = monitor.snapshot()
         snapshot.stage_latency_ms["total_cycle"] = (perf_counter() - cycle_start) * 1_000.0

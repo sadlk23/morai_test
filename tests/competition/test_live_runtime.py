@@ -162,6 +162,28 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertEqual(len(capture.decisions), 2)
         self.assertTrue(all(item.intervention == "live_input_wait_stop" for item in capture.decisions))
 
+    def test_wait_stop_publishes_once_at_zero_time_then_respects_throttle(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        config.live_input.safe_stop_publish_interval_s = 0.1
+        capture = _CapturePublisher()
+        now = {"value": 0.0}
+        pipeline = CompetitionRuntimePipeline(config, publishers=[capture])
+        assembler = LivePacketAssembler(config, time_fn=lambda: now["value"])
+        runtime = MoraiLiveRuntime(
+            config,
+            pipeline=pipeline,
+            subscribers=_FakeSubscribers(LiveSensorSnapshot()),  # type: ignore[arg-type]
+            assembler=assembler,
+        )
+        self.assertIsNone(runtime.run_cycle_once())
+        self.assertEqual(len(capture.decisions), 1)
+        self.assertEqual(capture.decisions[0].intervention, "live_input_wait_stop")
+        self.assertIsNone(runtime.run_cycle_once())
+        self.assertEqual(len(capture.decisions), 1)
+        now["value"] = 0.11
+        self.assertIsNone(runtime.run_cycle_once())
+        self.assertEqual(len(capture.decisions), 2)
+
     def test_optional_ego_topics_missing_does_not_block_runtime(self) -> None:
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
         pipeline = CompetitionRuntimePipeline(config, publishers=[])

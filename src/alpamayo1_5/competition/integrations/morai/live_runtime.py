@@ -62,6 +62,7 @@ class LivePacketAssembler:
         missing_required: list[str] = []
         stale_sensors: list[str] = []
         latest_timestamp_s: float | None = None
+        route_required = self.config.route_command.required and bool(self.config.route_command.topic)
 
         for camera in self.config.cameras:
             frame = snapshot.camera_frames.get(camera.name)
@@ -105,7 +106,10 @@ class LivePacketAssembler:
                 stale_sensors.append("imu")
 
         route_command_stale = False
-        if snapshot.route_timestamp_s is not None:
+        route_available = bool(snapshot.route_command) and snapshot.route_timestamp_s is not None
+        if route_required and not route_available:
+            missing_required.append("route_command")
+        if route_available:
             route_command_stale = (
                 self._sensor_age(current_s, snapshot.route_timestamp_s) or 0.0
             ) > self.config.route_command.max_staleness_s
@@ -195,7 +199,7 @@ class MoraiLiveRuntime:
         self.subscribers = subscribers or MoraiRosSubscriberManager(config)
         self.assembler = assembler or LivePacketAssembler(config, time_fn=self._select_time_fn())
         self._last_warning_s = 0.0
-        self._last_wait_publish_s = 0.0
+        self._last_wait_publish_s: float | None = None
 
     def _select_time_fn(self) -> Callable[[], float]:
         if self.config.live_input.use_ros_time:
@@ -399,7 +403,10 @@ class MoraiLiveRuntime:
         """Publish a safe stop while waiting for a valid live packet."""
 
         now_s = self.assembler._time_fn()
-        if now_s - self._last_wait_publish_s < self.config.live_input.safe_stop_publish_interval_s:
+        if (
+            self._last_wait_publish_s is not None
+            and now_s - self._last_wait_publish_s < self.config.live_input.safe_stop_publish_interval_s
+        ):
             return
         self._last_wait_publish_s = now_s
         health_summary = self._health_summary(health, live_snapshot, publishing_decision=False)

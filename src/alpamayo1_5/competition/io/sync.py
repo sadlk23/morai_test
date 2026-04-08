@@ -60,6 +60,10 @@ class SensorSynchronizer:
             if imu_age > self.config.imu.max_staleness_s:
                 stale.append("imu")
 
+        route_required = self.config.route_command.required and bool(self.config.route_command.topic)
+        if route_required and not packet.route_command:
+            missing.append("route_command")
+
         if self.config.use_lidar and self.config.lidar.required and packet.lidar_packet is None:
             missing.append("lidar")
         elif packet.lidar_packet is not None:
