@@ -43,6 +43,12 @@ K-City 2026 wrapper:
 roslaunch alpamayo1_5_ros run_competition_kcity_2026.launch
 ```
 
+ERP-oriented wrapper on the `erp-runtime` branch:
+
+```bash
+roslaunch alpamayo1_5_ros run_competition_erp.launch
+```
+
 ## Python/ROS1 Constraint
 
 Target field environment is Ubuntu 20.04 + ROS1 Noetic, but the runtime requires Python 3.10+.
@@ -140,6 +146,10 @@ python -m alpamayo1_5.competition.scripts.run_competition \
   --config configs/competition_morai_kcity_2026.json \
   --enable-legacy-serial-bridge
 ```
+
+The `erp-runtime` branch also adds `configs/competition_morai_erp.json` and
+`docs/morai_erp_runtime.md` for ERP-oriented MORAI vehicle bring-up. That branch
+keeps `/ctrl_cmd` available, but its active default path is `/Control/serial_data`.
 
 ## Verification Checklist
 

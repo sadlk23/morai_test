@@ -65,6 +65,20 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertEqual(config.morai_udp_reference.collision_data_host_port, 5677)
         self.assertEqual(config.morai_udp_reference.collision_data_user_port, 5678)
 
+    def test_erp_config_loads(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        self.assertEqual(config.competition_profile.vehicle_model, "ERP MORAI vehicle profile")
+        self.assertEqual(config.ros_output.node_name, "alpamayo_morai_erp_runtime")
+        self.assertEqual(config.live_input.node_name, "alpamayo_morai_erp_runtime")
+        self.assertFalse(config.ros_output.publish_actuation)
+        self.assertTrue(config.legacy_serial_bridge.enabled)
+        self.assertTrue(config.legacy_serial_bridge.publish_enabled)
+        self.assertEqual(config.legacy_serial_bridge.topic, "/Control/serial_data")
+        self.assertEqual(config.legacy_serial_bridge.brake_mode, "normalized")
+        self.assertEqual(config.vehicle_status.topic, "/ERP/serial_data")
+        self.assertEqual(config.vehicle_status.message_type, "std_msgs/Float32MultiArray")
+        self.assertTrue(config.vehicle_status.enabled)
+
     def test_invalid_duplicate_camera_names_fail(self) -> None:
         payload = CompetitionConfig().to_dict()
         payload["cameras"] = [

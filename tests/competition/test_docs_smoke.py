@@ -14,6 +14,7 @@ class CompetitionDocsSmokeTest(unittest.TestCase):
         config = load_competition_config("configs/competition_morai_kcity_2026.json")
         quickstart = Path("docs/morai_kcity_2026_quickstart.md").read_text(encoding="utf-8")
         live_usage = Path("docs/morai_live_usage.md").read_text(encoding="utf-8")
+        erp_runtime = Path("docs/morai_erp_runtime.md").read_text(encoding="utf-8")
         sim_reference = Path("docs/morai_sim_workspace_reference.md").read_text(encoding="utf-8")
         sim_reference_json = json.loads(
             Path("docs/morai_sim_2025_final_udp_profile.json").read_text(encoding="utf-8")
@@ -38,6 +39,10 @@ class CompetitionDocsSmokeTest(unittest.TestCase):
         self.assertEqual(sim_reference_json["multi_ip"], "192.168.0.100")
         self.assertEqual(sim_reference_json["ctrl_cmd_host_port"], 3300)
         self.assertEqual(sim_reference_json["competition_status_host_port"], 3314)
+        self.assertIn("erp-oriented", erp_runtime.lower())
+        self.assertIn("/control/serial_data", erp_runtime.lower())
+        self.assertIn("/erp/serial_data", erp_runtime.lower())
+        self.assertIn("normalized", erp_runtime.lower())
 
 
 if __name__ == "__main__":

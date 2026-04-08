@@ -1,0 +1,239 @@
+{
+  "planner_hz": 10.0,
+  "control_hz": 20.0,
+  "use_lidar": false,
+  "output_mode": "ros",
+  "cameras": [
+    {
+      "name": "front",
+      "topic": "/camera/front/image_raw",
+      "fallback_topics": [
+        "camera_image"
+      ],
+      "message_type": "sensor_msgs/Image",
+      "camera_index": 1,
+      "required": true,
+      "width": 1280,
+      "height": 720,
+      "max_staleness_s": 0.2
+    }
+  ],
+  "gps": {
+    "topic": "/fix",
+    "fallback_topics": [
+      "/gps"
+    ],
+    "message_type": "sensor_msgs/NavSatFix",
+    "required": true,
+    "max_staleness_s": 0.2
+  },
+  "imu": {
+    "topic": "/imu",
+    "message_type": "sensor_msgs/Imu",
+    "required": true,
+    "max_staleness_s": 0.2
+  },
+  "competition_profile": {
+    "competition_name": "ERP MORAI runtime profile",
+    "map_name": "R-KR_PG_K-City_2025",
+    "vehicle_model": "ERP MORAI vehicle profile",
+    "wheelbase_m": 3.0,
+    "ros_distro": "ROS1 Noetic",
+    "os_version": "Ubuntu 20.04",
+    "desktop_only": true,
+    "rosbridge_optional": true,
+    "max_gps": 1,
+    "max_imu": 1,
+    "max_camera": 2,
+    "max_lidar": 2,
+    "camera_pitch_limit_deg": 30.0,
+    "direct_actuation_topic": "/ctrl_cmd",
+    "direct_actuation_message_type": "morai_msgs/CtrlCmd",
+    "direct_actuation_longitudinal_type": 1,
+    "direct_actuation_command_mode": "pedal",
+    "participant_controls_gear_mode": false,
+    "participant_controls_external_mode": false,
+    "initial_vehicle_state": "Keyboard + P",
+    "operator_transition_state": "Operator or bridge switches ERP path when required"
+  },
+  "optional_ego_topics": {
+    "heading_topic": "/Local/heading",
+    "heading_message_type": "std_msgs/Float64",
+    "heading_fallback_message_types": [
+      "std_msgs/Float32"
+    ],
+    "utm_topic": "/Local/utm",
+    "utm_message_type": "std_msgs/Float32MultiArray",
+    "utm_fallback_message_types": [
+      "geometry_msgs/PointStamped"
+    ]
+  },
+  "vehicle_status": {
+    "enabled": true,
+    "topic": "/ERP/serial_data",
+    "message_type": "std_msgs/Float32MultiArray",
+    "required": false,
+    "max_staleness_s": 0.5
+  },
+  "competition_status": {
+    "enabled": false,
+    "topic": "",
+    "message_type": "",
+    "max_staleness_s": 0.5
+  },
+  "collision_data": {
+    "enabled": false,
+    "topic": "",
+    "message_type": "",
+    "max_staleness_s": 0.5
+  },
+  "route_command": {
+    "topic": "/route_command",
+    "message_type": "std_msgs/String",
+    "required": false,
+    "max_staleness_s": 1.0
+  },
+  "planner": {
+    "backend": "lightweight",
+    "legacy_model_id": "nvidia/Alpamayo-1.5-10B",
+    "device": "cuda",
+    "use_diffusion": false,
+    "use_nav": true,
+    "precision": "bf16",
+    "input_image_width": 1280,
+    "input_image_height": 720,
+    "history_steps": 16,
+    "history_dt_s": 0.1,
+    "num_waypoints": 20,
+    "waypoint_dt_s": 0.2,
+    "min_target_speed_mps": 0.0,
+    "max_target_speed_mps": 8.0,
+    "low_confidence_threshold": 0.35,
+    "allow_backend_fallback": true
+  },
+  "controller": {
+    "lateral_controller": "pure_pursuit",
+    "pure_pursuit": {
+      "wheelbase_m": 3.0,
+      "min_lookahead_m": 2.0,
+      "max_lookahead_m": 8.0,
+      "speed_to_lookahead_gain": 0.8
+    },
+    "stanley": {
+      "wheelbase_m": 3.0,
+      "gain": 1.2,
+      "softening_speed_mps": 0.5
+    },
+    "longitudinal_pid": {
+      "kp": 0.5,
+      "ki": 0.05,
+      "kd": 0.1,
+      "integral_limit": 5.0,
+      "output_limit": 1.0
+    },
+    "max_steering": 1.0,
+    "max_throttle": 1.0,
+    "max_brake": 1.0
+  },
+  "safety": {
+    "max_plan_age_s": 0.3,
+    "max_sensor_age_s": 0.25,
+    "max_abs_steering": 1.0,
+    "max_target_speed_mps": 10.0,
+    "max_curvature_for_full_speed": 0.08,
+    "min_confidence": 0.3,
+    "max_stop_probability_without_brake": 0.5,
+    "reuse_last_command_horizon_s": 0.3,
+    "emergency_brake_value": 1.0,
+    "conservative_speed_mps": 1.0,
+    "min_fresh_cameras": 1,
+    "invalidate_on_stale_ego_sensors": true
+  },
+  "ros_output": {
+    "enabled": true,
+    "command_topic": "/alpamayo/control_cmd_json",
+    "debug_topic": "/alpamayo/debug_snapshot",
+    "node_name": "alpamayo_morai_erp_runtime",
+    "queue_size": 1,
+    "publish_command_json": true,
+    "publish_debug_json": true,
+    "publish_actuation": false,
+    "require_actuation_arm": true,
+    "actuation_armed": false,
+    "actuation_topic": "/ctrl_cmd",
+    "actuation_message_type": "morai_msgs/CtrlCmd",
+    "command_mode": "pedal"
+  },
+  "legacy_serial_bridge": {
+    "enabled": true,
+    "topic": "/Control/serial_data",
+    "message_type": "std_msgs/Float32MultiArray",
+    "publish_enabled": true,
+    "default_control_mode": 1,
+    "default_gear": 0,
+    "include_alive_counter": true,
+    "e_stop_on_intervention": true,
+    "brake_mode": "normalized",
+    "brake_output_max": 1.0
+  },
+  "morai_udp_reference": {
+    "user_ip": "127.0.0.1",
+    "host_ip": "127.0.0.1",
+    "multi_ip": "",
+    "camera_host_port": 1231,
+    "camera_user_port": 1232,
+    "lidar_host_port": 2369,
+    "lidar_user_port": 2368,
+    "gps_host_port": 1233,
+    "gps_user_port": 1234,
+    "imu_host_port": 1235,
+    "imu_user_port": 1236,
+    "ctrl_cmd_host_port": 9091,
+    "ctrl_cmd_user_port": 9092,
+    "vehicle_status_host_port": 7701,
+    "vehicle_status_user_port": 7702,
+    "competition_status_host_port": 3314,
+    "competition_status_user_port": 3315,
+    "collision_data_host_port": 5677,
+    "collision_data_user_port": 5678,
+    "get_traffic_host_port": 7602,
+    "get_traffic_user_port": 7502,
+    "set_traffic_host_port": 7801,
+    "set_traffic_user_port": 7800,
+    "object_info_host_port": 7605,
+    "object_info_user_port": 7505,
+    "planner_path_file_name": "kcity.txt",
+    "user_serial_port": "/dev/ttyUSB0"
+  },
+  "udp_output": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 5005
+  },
+  "logging": {
+    "log_dir": "artifacts/morai_erp_logs",
+    "write_metrics_jsonl": true,
+    "write_debug_jsonl": true,
+    "write_command_history_jsonl": true,
+    "verbose_debug": true,
+    "save_last_valid_plan": true,
+    "enable_latency_profiling": true
+  },
+  "live_input": {
+    "enabled": true,
+    "adapter": "morai",
+    "node_name": "alpamayo_morai_erp_runtime",
+    "loop_hz": 10.0,
+    "subscriber_queue_size": 1,
+    "packet_timeout_s": 0.5,
+    "use_ros_time": true,
+    "fail_closed_on_missing_required": true,
+    "safe_stop_publish_interval_s": 0.1,
+    "warn_throttle_s": 2.0
+  },
+  "replay": {
+    "enabled": true,
+    "default_route_command": "keep lane",
+    "default_frame_interval_s": 0.1
+  }
+}

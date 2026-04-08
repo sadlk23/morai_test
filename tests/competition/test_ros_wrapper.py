@@ -54,6 +54,16 @@ class RosWrapperTest(unittest.TestCase):
             resolved = self.module.resolve_config_path(repo_root, "configs/competition_morai_kcity_2026.json")
             self.assertEqual(resolved, config_path.resolve())
 
+    def test_resolve_config_path_supports_erp_repo_relative_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            (repo_root / "src" / "alpamayo1_5").mkdir(parents=True)
+            config_path = repo_root / "configs" / "competition_morai_erp.json"
+            config_path.parent.mkdir(parents=True)
+            config_path.write_text("{}", encoding="utf-8")
+            resolved = self.module.resolve_config_path(repo_root, "configs/competition_morai_erp.json")
+            self.assertEqual(resolved, config_path.resolve())
+
     def test_build_runtime_argv_includes_debug_and_arming_flags(self) -> None:
         argv = self.module.build_runtime_argv(
             runtime_python="python3.11",
