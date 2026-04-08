@@ -60,6 +60,74 @@ class LivePacketAssemblyTest(unittest.TestCase):
         self.assertIn("front", diagnostics.stale_sensors)
         self.assertIn("packet_timeout", diagnostics.blocking_reasons)
 
+    def test_required_route_command_is_reported_missing_when_topic_is_configured(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        config.route_command.topic = "/route_command"
+        config.route_command.required = True
+        state = LiveSensorState()
+        state.update_camera(
+            "front",
+            CameraFrame(
+                camera_id="front",
+                timestamp_s=10.0,
+                frame_id=12,
+                image=[[[0, 0, 0] for _ in range(2)] for _ in range(2)],
+                shape=(2, 2, 3),
+                encoding="rgb8",
+                metadata={"decoded_rgb": True},
+            ),
+        )
+        state.update_gps(GpsFix(timestamp_s=10.0, latitude_deg=37.0, longitude_deg=127.0))
+        state.update_imu(ImuSample(timestamp_s=10.0, yaw_rad=0.1))
+        diagnostics = LivePacketAssembler(config, time_fn=lambda: 10.05).inspect_snapshot(state.snapshot())
+        self.assertIn("route_command", diagnostics.missing_required)
+        self.assertIn("missing:route_command", diagnostics.blocking_reasons)
+
+    def test_missing_route_command_stays_optional_when_route_input_is_not_required(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        config.route_command.topic = "/route_command"
+        config.route_command.required = False
+        state = LiveSensorState()
+        state.update_camera(
+            "front",
+            CameraFrame(
+                camera_id="front",
+                timestamp_s=10.0,
+                frame_id=13,
+                image=[[[0, 0, 0] for _ in range(2)] for _ in range(2)],
+                shape=(2, 2, 3),
+                encoding="rgb8",
+                metadata={"decoded_rgb": True},
+            ),
+        )
+        state.update_gps(GpsFix(timestamp_s=10.0, latitude_deg=37.0, longitude_deg=127.0))
+        state.update_imu(ImuSample(timestamp_s=10.0, yaw_rad=0.1))
+        diagnostics = LivePacketAssembler(config, time_fn=lambda: 10.05).inspect_snapshot(state.snapshot())
+        self.assertNotIn("route_command", diagnostics.missing_required)
+        self.assertNotIn("missing:route_command", diagnostics.blocking_reasons)
+
+    def test_required_route_command_without_topic_keeps_optional_runtime_behavior(self) -> None:
+        config = load_competition_config("configs/competition_morai_live.json")
+        config.route_command.topic = ""
+        config.route_command.required = True
+        state = LiveSensorState()
+        state.update_camera(
+            "front",
+            CameraFrame(
+                camera_id="front",
+                timestamp_s=10.0,
+                frame_id=14,
+                image=[[[0, 0, 0] for _ in range(2)] for _ in range(2)],
+                shape=(2, 2, 3),
+                encoding="rgb8",
+                metadata={"decoded_rgb": True},
+            ),
+        )
+        state.update_gps(GpsFix(timestamp_s=10.0, latitude_deg=37.0, longitude_deg=127.0))
+        state.update_imu(ImuSample(timestamp_s=10.0, yaw_rad=0.1))
+        diagnostics = LivePacketAssembler(config, time_fn=lambda: 10.05).inspect_snapshot(state.snapshot())
+        self.assertNotIn("route_command", diagnostics.missing_required)
+
 
 if __name__ == "__main__":
     unittest.main()
