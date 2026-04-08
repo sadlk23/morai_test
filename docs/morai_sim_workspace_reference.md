@@ -20,6 +20,7 @@ The historical `sim` workspace carried `morai_msgs` directly in the catkin works
 - `CollisionData.msg`
 
 That matters because on-site ROS workspaces can drift. Even when our runtime logic is correct, the venue message package can still differ.
+The safest policy is still to carry a validated `catkin_ws/src/morai_msgs` when possible, or to verify the venue-provided package before actuation.
 
 For that reason, on-site verification remains mandatory:
 

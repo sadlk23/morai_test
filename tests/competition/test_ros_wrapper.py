@@ -79,6 +79,15 @@ class RosWrapperTest(unittest.TestCase):
         self.assertIn("--enable-legacy-serial-bridge", argv)
         self.assertIn("--max-cycles", argv)
 
+    def test_validate_runtime_flags_rejects_debug_only_conflicts(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.module.validate_runtime_flags(
+                debug_only=True,
+                enable_actuation=True,
+                arm_actuation=False,
+                enable_legacy_serial_bridge=False,
+            )
+
     def test_debug_only_env_flag_is_truthy(self) -> None:
         os.environ[self.module.ENV_DEBUG_ONLY] = "true"
         try:

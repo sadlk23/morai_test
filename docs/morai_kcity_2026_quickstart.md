@@ -22,6 +22,26 @@ Historical venue reference from `sadlk23/sim` is documented separately in
 `docs/morai_sim_workspace_reference.md`. That is a historical reference only and must not override the active default unless the venue confirms it.
 The paired LAN reference artifact is `docs/morai_sim_2025_final_udp_profile.json`.
 
+## morai_msgs Workspace Policy
+
+For the K-City direct `/ctrl_cmd` path, treat `morai_msgs` as a managed workspace dependency rather than a hopeful environment assumption.
+
+Preferred field setup:
+
+- bring a validated `catkin_ws/src/morai_msgs`
+- rebuild or source the same workspace that will launch `alpamayo1_5_ros`
+
+Fallback field setup:
+
+- use the venue-provided `morai_msgs`
+- but do not drive until `rosmsg show morai_msgs/CtrlCmd` matches the expected pedal-mode contract
+
+Why this is mandatory:
+
+- venue ROS workspaces drift
+- simulator PC and operator PC can source different overlays
+- `/ctrl_cmd` may exist even when `morai_msgs/CtrlCmd` is the wrong definition
+
 ## Default Input Topics
 
 - camera primary: `/camera/front/image_raw`
@@ -83,6 +103,7 @@ When `enable_actuation:=true`, runtime now checks `morai_msgs/CtrlCmd` at startu
 Check this before driving:
 
 ```bash
+source /opt/ros/noetic/setup.bash
 rosmsg show morai_msgs/CtrlCmd
 ```
 
@@ -102,6 +123,7 @@ Expected velocity mode fields:
 
 Runtime policy in the K-City config stays on pedal mode by default. If `rosmsg show morai_msgs/CtrlCmd` does not expose the pedal-mode fields above, do not drive until the workspace message package is corrected.
 This is even more important when the venue workspace bundles its own `morai_msgs`, as seen in the historical `sim` workspace.
+If direct actuation startup reports "wrong morai_msgs in workspace" or "CtrlCmd missing accel/brake fields", stop and fix the sourced workspace before retrying.
 
 ## Gear And Mode Policy
 
@@ -116,7 +138,7 @@ This is even more important when the venue workspace bundles its own `morai_msgs
 1. Source ROS/catkin and verify Python 3.10 runtime path.
 2. Start simulator with K-City map and Ioniq5 vehicle profile.
 3. Launch debug-only runtime.
-4. Verify topic/type/hz and debug JSON output.
+4. Verify `rosmsg show morai_msgs/CtrlCmd`, topic/type/hz, and debug JSON output.
 5. Only then enable direct actuation and arm.
 6. If needed, additionally enable legacy bridge publishing.
 
@@ -194,6 +216,7 @@ rostopic hz /imu
 - desktop-only field setup means laptop assumptions, power profiles, and USB layout can diverge from the venue PC
 - Python 3.10 handoff missing from ROS1 launch shell
 - ROS workspace message package mismatch (`morai_msgs/CtrlCmd`, helper-topic message types)
+- wrong `morai_msgs` in workspace even though `/ctrl_cmd` topic exists
 - topic mismatch between simulator and config (camera/gps names)
 - message type mismatch (`NavSatFix`, `Imu`, `Float32MultiArray`, `CtrlCmd`)
 - `CtrlCmd` field mismatch now fails fast during direct actuation startup
@@ -202,4 +225,5 @@ rostopic hz /imu
 - stale sensor warnings due to low frequency or timestamp drift
 - actuation not armed (`enable_actuation` without `arm_actuation`)
 - display, ethernet, and simulator-PC network link issues can block topic graph visibility on site
+- ROS overlay order mistakes can make the runtime see a different `morai_msgs` than the operator expects
 - LAN-based historical profiles from `sim` are useful operator references but must not be copied blindly into active config

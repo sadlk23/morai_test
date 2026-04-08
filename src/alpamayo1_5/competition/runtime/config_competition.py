@@ -909,6 +909,7 @@ def runtime_policy_diagnostics(config: CompetitionConfig) -> dict[str, Any]:
         "pedal_mode": config.ros_output.command_mode == "pedal",
         "primary_output_path": primary_output_path,
         "direct_actuation_enabled": config.ros_output.publish_actuation,
+        "direct_actuation_requires_morai_msgs": True,
         "direct_actuation_topic": config.ros_output.actuation_topic,
         "direct_actuation_message_type": config.ros_output.actuation_message_type,
         "direct_actuation_longitudinal_type": 1 if config.ros_output.command_mode == "pedal" else 2,

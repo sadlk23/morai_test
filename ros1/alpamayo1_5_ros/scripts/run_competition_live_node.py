@@ -98,6 +98,21 @@ def resolve_runtime_python(cli_value: str | None = None) -> str:
     )
 
 
+def validate_runtime_flags(
+    debug_only: bool,
+    enable_actuation: bool,
+    arm_actuation: bool,
+    enable_legacy_serial_bridge: bool,
+) -> None:
+    """Keep wrapper launch flags aligned with runtime policy before handoff."""
+
+    if debug_only and (enable_actuation or arm_actuation or enable_legacy_serial_bridge):
+        raise SystemExit(
+            "--debug-only cannot be combined with --enable-actuation, --arm-actuation, "
+            "or --enable-legacy-serial-bridge"
+        )
+
+
 def build_runtime_argv(
     runtime_python: str,
     config_path: Path,
@@ -145,6 +160,12 @@ def main() -> None:
     arm_actuation = args.arm_actuation or _truthy_env(ENV_ARM_ACTUATION)
     enable_legacy_serial_bridge = args.enable_legacy_serial_bridge or _truthy_env(
         ENV_ENABLE_LEGACY_SERIAL_BRIDGE
+    )
+    validate_runtime_flags(
+        debug_only=debug_only,
+        enable_actuation=enable_actuation,
+        arm_actuation=arm_actuation,
+        enable_legacy_serial_bridge=enable_legacy_serial_bridge,
     )
 
     runtime_argv = build_runtime_argv(

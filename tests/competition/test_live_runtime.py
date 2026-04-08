@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from alpamayo1_5.competition.contracts import CameraFrame, GpsFix, ImuSample
 from alpamayo1_5.competition.integrations.morai.live_runtime import LivePacketAssembler, MoraiLiveRuntime
@@ -32,6 +33,25 @@ class _CapturePublisher:
 
 
 class LiveRuntimeTest(unittest.TestCase):
+    def test_debug_first_build_publishers_does_not_touch_direct_actuation_when_disabled(self) -> None:
+        config = load_competition_config("configs/competition_morai_kcity_2026.json")
+        config.ros_output.publish_actuation = False
+        config.legacy_serial_bridge.publish_enabled = False
+        runtime = MoraiLiveRuntime.__new__(MoraiLiveRuntime)
+        runtime.config = config
+        with patch(
+            "alpamayo1_5.competition.integrations.morai.live_runtime.RosJsonCommandPublisher",
+            return_value=object(),
+        ), patch(
+            "alpamayo1_5.competition.integrations.morai.live_runtime.RosDebugSnapshotPublisher",
+            return_value=object(),
+        ), patch(
+            "alpamayo1_5.competition.integrations.morai.live_runtime.MoraiCtrlCmdPublisher",
+            side_effect=AssertionError("direct actuation publisher should stay disabled"),
+        ):
+            publishers = MoraiLiveRuntime._build_publishers(runtime)
+        self.assertEqual(len(publishers), 2)
+
     def test_live_runtime_runs_one_cycle_with_mocked_buffers(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")
         pipeline = CompetitionRuntimePipeline(config, publishers=[])
@@ -83,6 +103,7 @@ class LiveRuntimeTest(unittest.TestCase):
         self.assertFalse(decision.diagnostics["competition_status"]["available"])
         self.assertIn("collision_data", snapshot.diagnostics)
         self.assertFalse(snapshot.diagnostics["collision_data"]["available"])
+        self.assertTrue(decision.diagnostics["runtime_policy"]["direct_actuation_requires_morai_msgs"])
 
     def test_live_runtime_can_wait_for_required_sensors_when_fail_closed_disabled(self) -> None:
         config = load_competition_config("configs/competition_morai_live.json")

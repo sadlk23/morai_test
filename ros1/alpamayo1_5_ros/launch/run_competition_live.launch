@@ -1,4 +1,6 @@
 <launch>
+  <!-- Debug-first bring-up remains the default. -->
+  <!-- Direct /ctrl_cmd actuation requires morai_msgs/CtrlCmd in the sourced catkin workspace. -->
   <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT)" />
   <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH)" />
   <arg name="runtime_python" default="$(optenv ALPAMAYO_RUNTIME_PYTHON)" />
