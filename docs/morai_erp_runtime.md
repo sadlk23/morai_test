@@ -46,23 +46,26 @@ ERP-oriented output and diagnostics:
 - `/ctrl_cmd` is still configured and can be enabled explicitly for comparison or fallback experiments
 - this branch does not delete or replace the direct MORAI actuation implementation
 - gear and ExternalCtrl remain operator-managed
+- the active default remains `/Control/serial_data`; `/ctrl_cmd` stays as an optional comparison or fallback path
 
 ## Brake Scaling Rule
 
-ERP default brake scaling stays on `normalized`.
+ERP default brake scaling is `erp_200`.
 
 Why:
 
-- the runtime already produces normalized brake internally
-- `/ERP/serial_data` status diagnostics are easier to compare against command output when the same normalized scale is used
-- this avoids assuming an ERP `0~200` consumer unless the downstream bridge explicitly requires it
+- `moo`'s `serial_ros2_bridge.py` treats `msg.data[5]` as ERP brake in the `1~200` family
+- `moo`'s `morai_udp_control.py` divides `msg.data[5]` by `200` before sending MORAI UDP brake
+- this means the `/Control/serial_data` contract is strongly aligned with ERP-style `0~200` brake output rather than normalized `0~1`
 
-If the downstream ERP bridge expects `0~200`, switch to:
+The runtime still computes brake internally as normalized `[0, 1]`, and the ERP bridge scales it to `0~200` right before `/Control/serial_data` publish.
+
+If a downstream ERP bridge expects normalized brake instead, switch to:
 
 ```json
 "legacy_serial_bridge": {
-  "brake_mode": "erp_200",
-  "brake_output_max": 200.0
+  "brake_mode": "normalized",
+  "brake_output_max": 1.0
 }
 ```
 
@@ -74,6 +77,13 @@ If the downstream ERP bridge expects `0~200`, switch to:
 4. Disable debug-only and let the ERP legacy bridge publish to `/Control/serial_data`
 5. Use direct `/ctrl_cmd` only if you explicitly want the optional path
 6. If direct actuation is needed, arm it explicitly
+
+Launch precedence note:
+
+- `run_competition_erp.launch` leaves `enable_legacy_serial_bridge:=false` by default
+- that launch arg does not disable the ERP config default
+- with `debug_only:=false`, the ERP config still publishes `/Control/serial_data`
+- `debug_only:=true` is the knob that suppresses bridge publish for safe bring-up
 
 ## Commands
 
@@ -125,10 +135,11 @@ rostopic echo /alpamayo/debug_snapshot
 - command/status mismatch diagnostics use `/ERP/serial_data` when it is available
 - `morai_udp_reference` remains operator diagnostics only
 - optional helper topics remain non-blocking
+- the current ERP branch inherits the `3.0 m` baseline from the K-City profile because `moo` alone does not strongly confirm a better ERP-specific wheelbase
 
 ## Risks To Confirm On Site
 
 - ERP vehicle wheelbase and controller tuning may need adjustment from the inherited 3.0 m baseline
-- downstream ERP bridge may expect `erp_200` brake scaling instead of normalized
+- downstream ERP bridge may still use a variant of the ERP brake contract, so confirm the exact `/Control/serial_data` expectation on site
 - `/ERP/serial_data` payload meaning must be confirmed in the venue workspace
 - direct `/ctrl_cmd` remains optional and should not be mistaken for the ERP default path

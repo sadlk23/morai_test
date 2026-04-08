@@ -74,7 +74,8 @@ class CompetitionConfigTest(unittest.TestCase):
         self.assertTrue(config.legacy_serial_bridge.enabled)
         self.assertTrue(config.legacy_serial_bridge.publish_enabled)
         self.assertEqual(config.legacy_serial_bridge.topic, "/Control/serial_data")
-        self.assertEqual(config.legacy_serial_bridge.brake_mode, "normalized")
+        self.assertEqual(config.legacy_serial_bridge.brake_mode, "erp_200")
+        self.assertEqual(config.legacy_serial_bridge.brake_output_max, 200.0)
         self.assertEqual(config.vehicle_status.topic, "/ERP/serial_data")
         self.assertEqual(config.vehicle_status.message_type, "std_msgs/Float32MultiArray")
         self.assertTrue(config.vehicle_status.enabled)
@@ -179,6 +180,21 @@ class CompetitionConfigTest(unittest.TestCase):
         updated = apply_runtime_mode_overrides(config, enable_legacy_serial_bridge=True)
         self.assertTrue(updated.legacy_serial_bridge.enabled)
         self.assertTrue(updated.legacy_serial_bridge.publish_enabled)
+
+    def test_erp_config_keeps_legacy_bridge_enabled_without_explicit_launch_override(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        updated = apply_runtime_mode_overrides(
+            config,
+            debug_only=False,
+            enable_legacy_serial_bridge=False,
+        )
+        self.assertTrue(updated.legacy_serial_bridge.enabled)
+        self.assertTrue(updated.legacy_serial_bridge.publish_enabled)
+
+    def test_erp_debug_only_still_disables_bridge_publish(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        updated = apply_runtime_mode_overrides(config, debug_only=True)
+        self.assertFalse(updated.legacy_serial_bridge.publish_enabled)
 
     def test_live_safe_stop_publish_interval_must_be_positive(self) -> None:
         payload = CompetitionConfig().to_dict()

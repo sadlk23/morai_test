@@ -11,6 +11,7 @@ from alpamayo1_5.competition.integrations.morai.legacy_serial_bridge import (
     resolve_legacy_brake_scaling,
 )
 from alpamayo1_5.competition.runtime.config_competition import LegacySerialBridgeConfig
+from alpamayo1_5.competition.runtime.config_competition import load_competition_config
 
 
 class LegacySerialBridgeTest(unittest.TestCase):
@@ -89,6 +90,13 @@ class LegacySerialBridgeTest(unittest.TestCase):
         self.assertEqual(diagnostics["brake_mode"], "normalized")
         self.assertEqual(diagnostics["brake_output_max"], 1.0)
         self.assertTrue(diagnostics["warnings"])
+
+    def test_erp_config_publishes_erp_200_brake_payload_for_moo_compatibility(self) -> None:
+        config = load_competition_config("configs/competition_morai_erp.json")
+        payload = build_legacy_serial_payload(self._decision(brake=0.5), config.legacy_serial_bridge, alive_counter=4)
+        self.assertEqual(config.legacy_serial_bridge.brake_mode, "erp_200")
+        self.assertEqual(config.legacy_serial_bridge.brake_output_max, 200.0)
+        self.assertAlmostEqual(payload[5], 100.0)
 
 
 if __name__ == "__main__":

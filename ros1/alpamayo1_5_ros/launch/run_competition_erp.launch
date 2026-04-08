@@ -1,6 +1,7 @@
 <launch>
   <!-- This branch is ERP-oriented and not the main Ioniq5 competition default. -->
   <!-- The ERP config already enables legacy serial bridge publishing when debug_only is false. -->
+  <!-- enable_legacy_serial_bridge=false here does not disable the config default; it only avoids adding an extra enable override. -->
   <arg name="repo_root" default="$(optenv ALPAMAYO_REPO_ROOT)" />
   <arg name="config" default="$(optenv ALPAMAYO_CONFIG_PATH configs/competition_morai_erp.json)" />
   <arg name="runtime_python" default="$(optenv ALPAMAYO_RUNTIME_PYTHON)" />

@@ -150,6 +150,7 @@ python -m alpamayo1_5.competition.scripts.run_competition \
 The `erp-runtime` branch also adds `configs/competition_morai_erp.json` and
 `docs/morai_erp_runtime.md` for ERP-oriented MORAI vehicle bring-up. That branch
 keeps `/ctrl_cmd` available, but its active default path is `/Control/serial_data`.
+Its ERP brake default follows the stronger `moo` bridge contract and publishes ERP-style `0~200` brake on `/Control/serial_data`.
 
 ## Verification Checklist
 

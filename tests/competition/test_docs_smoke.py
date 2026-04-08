@@ -42,7 +42,11 @@ class CompetitionDocsSmokeTest(unittest.TestCase):
         self.assertIn("erp-oriented", erp_runtime.lower())
         self.assertIn("/control/serial_data", erp_runtime.lower())
         self.assertIn("/erp/serial_data", erp_runtime.lower())
-        self.assertIn("normalized", erp_runtime.lower())
+        self.assertIn("erp_200", erp_runtime.lower())
+        self.assertIn("active default", erp_runtime.lower())
+        self.assertIn("/ctrl_cmd", erp_runtime.lower())
+        self.assertIn("optional", erp_runtime.lower())
+        self.assertIn("inherits the `3.0 m` baseline".lower(), erp_runtime.lower())
 
 
 if __name__ == "__main__":
